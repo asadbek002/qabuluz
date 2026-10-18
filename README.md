@@ -1,92 +1,97 @@
 # Koreya universitetlariga ariza
 
-Koreya universitetlariga hujjat topshirish sayti. Ushbu nusxa Cloudflare D1/R2 o‘rniga PostgreSQL va server diskidagi fayl papkasidan foydalanadi. Ilova Docker orqali ishga tushadi.
+Koreya universitetlariga hujjat topshirish sayti (Next.js / vinext + PostgreSQL). Ilova Docker orqali ishga tushadi, hujjatlar server diskida saqlanadi.
 
-## Tarkib
+## Imkoniyatlar
 
-- Talaba ariza formasini yuboradi.
-- Telefon raqami `+8210` formatida tekshiriladi.
-- Universitet va magistratura yo‘nalishlari tanlanadi.
-- TOPIK va boshqa til darajalari ro‘yxatdan tanlanadi.
-- Admin arizalarni ko‘radi, hujjatlarni yuklab oladi va Excel faylga eksport qiladi.
-- Yuklangan hujjatlar `data/uploads/` papkasida saqlanadi.
+- Talaba 4 qadamda ariza yuboradi (universitet → dastur → ma’lumotlar → tasdiqlash).
+- Telefon `+8210XXXXXXXX` formatida, barcha tanlovlar serverda ham tekshiriladi.
+- PDF/JPG/PNG hujjatlar (har biri 10 MB gacha), fayl turi uning ichidan aniqlanadi.
+- Admin (`/admin`) arizalarni ko‘radi, qidiradi, hujjatlarni ochadi va Excel’ga eksport qiladi.
 
-## Talablar
+## Serverga deploy (Ubuntu 22.04/24.04)
 
-- Docker Engine va Docker Compose plugin
-- Node.js 22.13+ (faqat lokal ishlab chiqish uchun)
-- PostgreSQL 15+ (PostgreSQL 17 bilan ishlaydi)
-- Reverse proxy va HTTPS domeni (masalan, Nginx)
-
-## Serverda ishga tushirish
-
-1. GitHub repository'ni serverga clone qiling va loyiha papkasiga o‘ting.
-2. PostgreSQL serverida alohida database va user yarating. Mavjud PostgreSQL konteyneri ishlatilsa, web konteyner unga ulangan Docker tarmog‘iga qo‘shilishi kerak.
-3. PostgreSQL konteyneri ulangan tarmoq nomini aniqlang:
-
-   ```bash
-   docker network ls
-   ```
-
-4. Namuna sozlamani nusxalang va `.env` ichidagi uchta qiymatni o‘zingiznikiga almashtiring:
-
-   ```bash
-   cp .env.example .env
-   nano .env
-   ```
-
-   `DATABASE_URL` dagi `postgres` o‘rniga PostgreSQL konteynerining tarmoq ichidagi nomi yoki aliasini yozing. `POSTGRES_DOCKER_NETWORK` qiymati esa o‘sha konteyner ulangan Docker network bo‘lsin. `ADMIN_PASSWORD` uchun uzun va tasodifiy parol qo‘ying.
-
-5. Ilovani ishga tushiring:
-
-   ```bash
-   docker compose -f compose.yml up -d --build
-   docker compose -f compose.yml logs -f web
-   ```
-
-   Ilova birinchi ishga tushishda PostgreSQL’ga ulanib, jadval migratsiyalarini bajaradi. Web server hostda faqat `127.0.0.1:3010` portida ochiladi.
-
-6. Nginx yoki boshqa reverse proxy'da domeningizni `http://127.0.0.1:3010` ga yo‘naltiring va HTTPS yoqing. Admin sahifasi `/admin` manzilida.
-
-## PostgreSQL ma'lumotlari
-
-Database va user'ni PostgreSQL ichida administrator hisobidan yarating, masalan:
-
-```sql
-CREATE USER university_apply WITH PASSWORD 'STRONG_DATABASE_PASSWORD';
-CREATE DATABASE university_apply OWNER university_apply;
-```
-
-Keyin `.env` ichidagi `DATABASE_URL` parolini shu qiymatga moslang. Production serverda PostgreSQL portini internetga ochmang; ilova bilan bir Docker network orqali ulang.
-
-## GitHub'ga yuborish
-
-GitHub'da bo‘sh repository yarating, so‘ng loyiha papkasida:
+### 1. Docker, Nginx va Certbot o‘rnatish
 
 ```bash
-git init
-git add .
-git commit -m "Prepare self-hosted university application site"
-git branch -M main
-git remote add origin https://github.com/USERNAME/REPOSITORY.git
-git push -u origin main
+curl -fsSL https://get.docker.com | sudo sh
+sudo apt install -y nginx certbot python3-certbot-nginx git
 ```
 
-`.env`, yuklangan hujjatlar, `node_modules` va build fayllari Git'ga kiritilmaydi. `.env.example` ichida faqat namuna qiymatlar bor.
+### 2. Loyihani yuklab olish
+
+```bash
+sudo mkdir -p /opt/qabuluz && sudo chown $USER /opt/qabuluz
+git clone https://github.com/asadbek002/qabuluz.git /opt/qabuluz
+cd /opt/qabuluz
+```
+
+### 3. Sozlamalar (`.env`)
+
+```bash
+cp .env.example .env
+nano .env
+```
+
+- `ADMIN_PASSWORD` — kamida 12 belgi (`openssl rand -base64 24`).
+- `POSTGRES_PASSWORD` — faqat harf va raqamlardan iborat bo‘lsin (`openssl rand -hex 24`), chunki u ulanish URL’iga qo‘yiladi.
+
+### 4. Ishga tushirish
+
+```bash
+docker compose up -d --build
+docker compose logs -f web      # "Database migrations applied." va "Production server running" chiqishi kerak
+curl http://127.0.0.1:3010/api/health   # {"ok":true}
+```
+
+`compose.yml` ilova bilan birga o‘zining PostgreSQL 17 konteynerini ko‘taradi. Ma’lumotlar `data/postgres/`, hujjatlar `data/uploads/` papkasida saqlanadi. Migratsiyalar har ishga tushishda avtomatik bajariladi.
+
+Agar serverda PostgreSQL boshqa konteynerda allaqachon ishlayotgan bo‘lsa, `.env` ga `POSTGRES_DOCKER_NETWORK` va `DATABASE_URL` ni yozing va `docker compose -f compose.external-db.yml up -d --build` dan foydalaning.
+
+### 5. Domen va HTTPS
+
+```bash
+sudo cp deploy/nginx.conf /etc/nginx/sites-available/qabuluz
+sudo nano /etc/nginx/sites-available/qabuluz        # example.uz ni o‘z domeningizga almashtiring
+sudo ln -s /etc/nginx/sites-available/qabuluz /etc/nginx/sites-enabled/
+sudo nginx -t && sudo systemctl reload nginx
+sudo certbot --nginx -d example.uz -d www.example.uz
+```
+
+Ilova faqat `127.0.0.1:3010` da tinglaydi — tashqaridan faqat Nginx orqali kiriladi. Admin cookie faqat HTTPS orqali ishlaydi, shuning uchun admin panelga `https://` bilan kiring.
+
+Firewall: `sudo ufw allow OpenSSH && sudo ufw allow 'Nginx Full' && sudo ufw enable`.
+
+### 6. Yangilash
+
+```bash
+cd /opt/qabuluz
+git pull
+docker compose up -d --build
+```
+
+### 7. Backup
+
+```bash
+./deploy/backup.sh          # backups/ papkasiga DB dump va hujjatlar arxivi
+crontab -e                  # har kuni 03:00 da:
+# 0 3 * * * cd /opt/qabuluz && ./deploy/backup.sh >> backups/backup.log 2>&1
+```
+
+Backup’larni serverdan tashqariga ham (boshqa disk/bulut) nusxalab turing.
+
+Tiklash: `gunzip -c backups/db-XXXX.sql.gz | docker compose exec -T db sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB"'` va `tar -xzf backups/uploads-XXXX.tar.gz -C data`.
 
 ## Lokal ishlab chiqish
 
 ```bash
 corepack enable
 pnpm install
-cp .env.example .env
+cp .env.example .env     # DATABASE_URL ni lokal PostgreSQL’ga moslang
+pnpm db:migrate:dev
 pnpm dev
 ```
 
-Lokal rejimda ham `.env` dagi `DATABASE_URL` haqiqiy PostgreSQL bazasiga ulanib turishi kerak. Schema o‘zgarsa, migratsiya yaratish:
+Schema o‘zgarsa: `pnpm db:generate` (yangi SQL migratsiya `drizzle/` ga yoziladi va commit qilinadi).
 
-```bash
-pnpm db:generate
-```
-
-Migratsiyalar Docker ishga tushganda avtomatik bajariladi. Yuklangan hujjatlarni muntazam backup qiling: PostgreSQL backup'i bilan birga `data/uploads/` papkasini ham saqlang.
+Tekshiruvlar: `pnpm lint`, `npx tsc --noEmit`, `pnpm build`.

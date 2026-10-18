@@ -90,3 +90,16 @@ export const universities: University[] = [
 ];
 
 export const cisCountries = ["O‘zbekiston", "Qozog‘iston", "Qirg‘iziston", "Tojikiston", "Turkmaniston", "Ozarbayjon", "Armaniston", "Belarus", "Moldova", "Rossiya", "Ukraina"];
+
+// Shared by the form and the API so server-side validation matches what the UI offers.
+export const mastersProgram = "Magistratura — yo‘nalishni maslahatchi bilan tanlayman";
+export const genders = ["Erkak", "Ayol"];
+export const visaTypes = ["Koreyada yashamayman", "D-2", "D-4", "E-9", "E-7", "F-2", "F-4", "F-6", "Boshqa"];
+export const semesters = ["2027-yil mart", "2027-yil sentabr"];
+export const baseAdmissionTypes = ["1-kurs", "3-kursdan o‘qishni ko‘chirish", "4-kursdan o‘qishni ko‘chirish"];
+export const languageTypes = ["Mavjud emas", "TOPIK", "KIIP", "IELTS"];
+export const certificateLevels: Record<string, string[]> = {
+  TOPIK: ["1-daraja", "2-daraja", "3-daraja", "4-daraja", "5-daraja", "6-daraja"],
+  KIIP: ["1-bosqich", "2-bosqich", "3-bosqich", "4-bosqich", "5-bosqich"],
+  IELTS: Array.from({ length: 18 }, (_, i) => `${(i + 1) / 2} ball`),
+};

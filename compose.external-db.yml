@@ -1,0 +1,19 @@
+# Use when PostgreSQL already runs in another Docker container on this server.
+#   docker compose -f compose.external-db.yml up -d --build
+services:
+  web:
+    build: .
+    restart: unless-stopped
+    env_file:
+      - .env
+    ports:
+      - "127.0.0.1:${APP_PORT:-3010}:3000"
+    volumes:
+      - ./data/uploads:/app/data/uploads
+    networks:
+      - database
+
+networks:
+  database:
+    external: true
+    name: ${POSTGRES_DOCKER_NETWORK:?Set POSTGRES_DOCKER_NETWORK in .env to the network used by PostgreSQL}

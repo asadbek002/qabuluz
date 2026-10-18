@@ -56,3 +56,6 @@ footer{padding:10px 24px 40px;text-align:center;color:#7a8699;font-size:12px}.su
 .export-button{display:inline-flex;align-items:center;justify-content:center;min-height:40px;padding:0 14px;border-radius:10px;background:#07845e;color:#fff;text-decoration:none;font-size:12px;font-weight:800}
 .export-button:hover{background:#06704f}
 @media(max-width:600px){.admin-head{align-items:flex-start;flex-direction:column;gap:14px}.admin-head-actions{width:100%;justify-content:space-between}.export-button{min-height:38px;padding:0 12px}}
+
+/* Keep the connector line from striking through step labels */
+.step em{position:relative;z-index:1;padding-right:10px;background:var(--paper)}

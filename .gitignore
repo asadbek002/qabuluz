@@ -10,3 +10,7 @@ data/
 .DS_Store
 coverage/
 *.tsbuildinfo
+
+# Local pnpm store created by the original Sites tooling
+.sites-runtime/
+backups/

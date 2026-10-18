@@ -1,0 +1,13 @@
+.git
+node_modules
+.sites-runtime
+dist
+.next
+data
+.env
+.env.*
+!.env.example
+*.log
+Dockerfile
+compose*.yml
+deploy

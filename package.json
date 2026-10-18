@@ -7,11 +7,12 @@
   },
   "scripts": {
     "dev": "vinext dev --hostname 0.0.0.0",
-    "build": "vinext build",
+    "build": "vinext build && vite build --config scripts/vite.migrate.config.mjs",
     "start": "node dist/standalone/server.js",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
     "db:generate": "drizzle-kit generate",
-    "db:migrate": "drizzle-kit migrate"
+    "db:migrate": "node dist/migrate/migrate.mjs",
+    "db:migrate:dev": "drizzle-kit migrate"
   },
   "dependencies": {
     "@base-ui/react": "^1.7.0",

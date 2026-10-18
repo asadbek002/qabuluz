@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { ArrowLeft, ArrowRight, Check, FileText, GraduationCap, MapPin, ShieldCheck, Upload } from "lucide-react";
-import { cisCountries, universities } from "@/lib/universities";
+import { baseAdmissionTypes, certificateLevels, cisCountries, genders, languageTypes, mastersProgram, semesters, universities, visaTypes } from "@/lib/universities";
 
 const fieldLabels: Record<string, string> = {
   lastName: "Familiya", firstName: "Ism", middleName: "Otasining ismi",
@@ -21,13 +21,6 @@ const requiredByStep: Record<number, string[]> = {
   2: ["campus", "program", "track", "semester"],
   3: ["lastName", "firstName", "middleName", "birthDate", "gender", "citizenship", "phone", "telegram", "email", "address", "visaType", "previousSchool", "admissionType", "languageType", "languageLevel", "passportNumber"],
   4: [],
-};
-
-const mastersProgram = "Magistratura — yo‘nalishni maslahatchi bilan tanlayman";
-const certificateLevels: Record<string, string[]> = {
-  TOPIK: ["1-daraja", "2-daraja", "3-daraja", "4-daraja", "5-daraja", "6-daraja"],
-  KIIP: ["1-bosqich", "2-bosqich", "3-bosqich", "4-bosqich", "5-bosqich"],
-  IELTS: Array.from({ length: 18 }, (_, i) => `${(i + 1) / 2} ball`),
 };
 
 export default function ApplicationForm() {
@@ -63,6 +56,8 @@ export default function ApplicationForm() {
 
   async function submit() {
     if (!consent) return setError("Ma’lumotlarni qayta ishlashga rozilik bildiring.");
+    const tooBig = Object.values(files).find((file) => file && file.size > 10 * 1024 * 1024);
+    if (tooBig) return setError(`${tooBig.name} fayli 10 MB dan katta.`);
     setBusy(true); setError("");
     try {
       const data = new FormData();
@@ -70,8 +65,9 @@ export default function ApplicationForm() {
       data.append("universityId", selectedId);
       Object.entries(files).forEach(([key, file]) => file && data.append(key, file));
       const response = await fetch("/api/applications", { method: "POST", body: data });
-      const result = await response.json() as { ok?: boolean; applicationNo?: string; error?: string };
-      if (!response.ok) throw new Error(result.error || "Arizani yuborib bo‘lmadi.");
+      const result = await response.json().catch(() => ({})) as { ok?: boolean; applicationNo?: string; error?: string };
+      if (response.status === 413) throw new Error("Yuklangan fayllar hajmi juda katta.");
+      if (!response.ok || !result.applicationNo) throw new Error(result.error || "Arizani yuborib bo‘lmadi.");
       setApplicationNo(result.applicationNo || "");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Xatolik yuz berdi.");
@@ -101,7 +97,7 @@ export default function ApplicationForm() {
         <h1>Koreya universitetiga<br/>ariza topshiring</h1>
         <p className="hero-copy">Universitetni tanlang, ma’lumotlaringizni kiriting va arizani bir necha daqiqada yuboring.</p>
       </div>
-      <div className="hero-stat"><strong>6</strong><span>ta universitet</span></div>
+      <div className="hero-stat"><strong>{universities.length}</strong><span>ta universitet</span></div>
     </section>
 
     <div className="steps">
@@ -131,10 +127,10 @@ export default function ApplicationForm() {
         <div className="section-title"><p>2-qadam</p><h2>Dastur ma’lumotlari</h2><span>O‘qish variantlarini tanlang.</span></div>
         <div className="form-grid">
           <Select label="Kampus" value={form.campus} onChange={(v) => update("campus", v)} options={university.campuses}/>
-          <Select label="Ta’lim bosqichi va qabul turi" value={form.admissionType} onChange={(v) => {update("admissionType", v); update("program", v === "Magistratura" ? mastersProgram : university.programs[0]);}} options={["1-kurs", "3-kursdan o‘qishni ko‘chirish", "4-kursdan o‘qishni ko‘chirish", ...(university.hasMasters ? ["Magistratura"] : [])]}/>
+          <Select label="Ta’lim bosqichi va qabul turi" value={form.admissionType} onChange={(v) => {update("admissionType", v); update("program", v === "Magistratura" ? mastersProgram : university.programs[0]);}} options={[...baseAdmissionTypes, ...(university.hasMasters ? ["Magistratura"] : [])]}/>
           <Select label="Yo‘nalish" value={form.program} onChange={(v) => update("program", v)} options={form.admissionType === "Magistratura" ? [mastersProgram] : university.programs}/>
           <Select label="Ta’lim tili" value={form.track} onChange={(v) => update("track", v)} options={university.tracks}/>
-          <Select label="Qabul semestri" value={form.semester} onChange={(v) => update("semester", v)} options={["2027-yil mart", "2027-yil sentabr"]}/>
+          <Select label="Qabul semestri" value={form.semester} onChange={(v) => update("semester", v)} options={semesters}/>
         </div>
         <div className="info-box"><FileText size={19}/><span>Kontrakt, chegirma va til talablari arizangiz ko‘rib chiqilganda tanlangan dastur bo‘yicha aniqlashtiriladi.</span></div>
       </>}
@@ -147,20 +143,20 @@ export default function ApplicationForm() {
           <Input label="Ism" name="firstName" form={form} update={update}/>
           <Input label="Otasining ismi" name="middleName" form={form} update={update}/>
           <Input label="Tug‘ilgan sana" name="birthDate" type="date" form={form} update={update}/>
-          <Select label="Jinsi" value={form.gender} onChange={(v) => update("gender", v)} options={["Erkak", "Ayol"]} placeholder="Tanlang"/>
+          <Select label="Jinsi" value={form.gender} onChange={(v) => update("gender", v)} options={genders} placeholder="Tanlang"/>
           <Select label="Fuqaroligi" value={form.citizenship} onChange={(v) => update("citizenship", v)} options={cisCountries} placeholder="Davlatni tanlang"/>
           <Input label="Telefon raqami" name="phone" type="tel" placeholder="+821012345678" form={form} update={update}/>
           <Input label="Telegram username" name="telegram" placeholder="@username" form={form} update={update}/>
           <Input label="Elektron pochta" name="email" type="email" form={form} update={update}/>
           <Input label="Hozirgi yashash manzili" name="address" form={form} update={update} wide/>
-          <Select label="Viza turi" value={form.visaType} onChange={(v) => update("visaType", v)} options={["Koreyada yashamayman", "D-2", "D-4", "E-9", "E-7", "F-2", "F-4", "F-6", "Boshqa"]} placeholder="Tanlang"/>
+          <Select label="Viza turi" value={form.visaType} onChange={(v) => update("visaType", v)} options={visaTypes} placeholder="Tanlang"/>
           {form.visaType && form.visaType !== "Koreyada yashamayman" && <Input label="Koreya ID karta raqami" name="arcNumber" form={form} update={update}/>}
           <Input label="Xorijga chiqish pasporti raqami" name="passportNumber" form={form} update={update}/>
         </div>
         <h3 className="form-heading">Ta’lim va til ma’lumotlari</h3>
         <div className="form-grid">
           <Input label="O‘zbekistonda bitirgan ta’lim muassasasi" name="previousSchool" form={form} update={update} wide/>
-          <Select label="Til sertifikati" value={form.languageType} onChange={(v) => {update("languageType", v); update("languageLevel", v === "Mavjud emas" ? "Mavjud emas" : "");}} options={["Mavjud emas", "TOPIK", "KIIP", "IELTS"]}/>
+          <Select label="Til sertifikati" value={form.languageType} onChange={(v) => {update("languageType", v); update("languageLevel", v === "Mavjud emas" ? "Mavjud emas" : "");}} options={languageTypes}/>
           <Select label={form.languageType === "TOPIK" ? "TOPIK darajasi" : form.languageType === "Mavjud emas" ? "Darajasi yoki bali" : `${form.languageType} darajasi yoki bali`} value={form.languageLevel} onChange={(v) => update("languageLevel", v)} options={certificateLevels[form.languageType] || []} placeholder={form.languageType === "Mavjud emas" ? "Mavjud emas" : "Darajani tanlang"} disabled={form.languageType === "Mavjud emas"}/>
         </div>
         <h3 className="form-heading">Hujjatlar <span>ixtiyoriy</span></h3>
@@ -201,7 +197,7 @@ function Input({label,name,form,update,type="text",placeholder="",wide=false,dis
     else if (digits.startsWith("10")) digits = digits.slice(2);
     update(name, `+8210${digits.slice(0, 8)}`);
   }
-  return <label className={wide ? "field wide" : "field"}><span>{label} <b>*</b></span><input type={type} inputMode={name === "phone" ? "numeric" : undefined} maxLength={name === "phone" ? 13 : undefined} value={form[name] || ""} placeholder={placeholder} disabled={disabled} onChange={(e)=>onChange(e.target.value)}/></label>;
+  return <label className={wide ? "field wide" : "field"}><span>{label} <b>*</b></span><input type={type} inputMode={name === "phone" ? "numeric" : undefined} maxLength={name === "phone" ? 13 : 200} value={form[name] || ""} placeholder={placeholder} disabled={disabled} onChange={(e)=>onChange(e.target.value)}/></label>;
 }
 function Select({label,value,onChange,options,placeholder,disabled=false}:{label:string;value?:string;onChange:(v:string)=>void;options:string[];placeholder?:string;disabled?:boolean}) {
   return <label className="field"><span>{label} <b>*</b></span><select disabled={disabled} value={value || ""} onChange={(e)=>onChange(e.target.value)}><option value="" disabled>{placeholder || "Tanlang"}</option>{options.map(o=><option key={o}>{o}</option>)}</select></label>;

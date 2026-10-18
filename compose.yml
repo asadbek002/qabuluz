@@ -1,3 +1,5 @@
+# Default setup: the app and its own PostgreSQL in one stack.
+# If you already run PostgreSQL in another container, use compose.external-db.yml instead.
 services:
   web:
     build: .
@@ -5,17 +7,27 @@ services:
     env_file:
       - .env
     environment:
-      HOST: 0.0.0.0
-      PORT: 3000
-      UPLOAD_DIR: /app/data/uploads
+      DATABASE_URL: postgres://${POSTGRES_USER:-university_apply}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@db:5432/${POSTGRES_DB:-university_apply}
     ports:
-      - "127.0.0.1:3010:3000"
+      # Only reachable from the host itself; expose publicly through Nginx + HTTPS.
+      - "127.0.0.1:${APP_PORT:-3010}:3000"
     volumes:
       - ./data/uploads:/app/data/uploads
-    networks:
-      - database
+    depends_on:
+      db:
+        condition: service_healthy
 
-networks:
-  database:
-    external: true
-    name: ${POSTGRES_DOCKER_NETWORK:?Set POSTGRES_DOCKER_NETWORK in .env to the network used by PostgreSQL}
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-university_apply}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-university_apply}
+    volumes:
+      - ./data/postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
