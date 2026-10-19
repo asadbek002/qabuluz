@@ -34,7 +34,7 @@ nano .env
 ```
 
 - `ADMIN_PASSWORD` — kamida 12 belgi (`openssl rand -base64 24`).
-- `POSTGRES_PASSWORD` — faqat harf va raqamlardan iborat bo‘lsin (`openssl rand -hex 24`), chunki u ulanish URL’iga qo‘yiladi.
+- `POSTGRES_PASSWORD` — uzun parol (`openssl rand -hex 24`). Uni birinchi ishga tushirishdan keyin o‘zgartirmang: baza shu parol bilan yaratiladi.
 
 ### 4. Ishga tushirish
 

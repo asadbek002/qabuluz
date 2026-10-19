@@ -6,8 +6,8 @@ import { drizzle } from "drizzle-orm/postgres-js";
 import { migrate } from "drizzle-orm/postgres-js/migrator";
 
 const url = process.env.DATABASE_URL;
-if (!url) {
-  console.error("DATABASE_URL environment variable is required.");
+if (!url && !process.env.PGHOST) {
+  console.error("DATABASE_URL or PGHOST environment variable is required.");
   process.exit(1);
 }
 
@@ -15,7 +15,8 @@ const migrationsFolder = path.resolve(process.env.MIGRATIONS_DIR || "./drizzle")
 const attempts = Number(process.env.MIGRATE_RETRIES || 30);
 
 for (let attempt = 1; ; attempt++) {
-  const client = postgres(url, { max: 1, connect_timeout: 10, onnotice: () => {} });
+  const options = { max: 1, connect_timeout: 10, onnotice: () => {} };
+  const client = url ? postgres(url, options) : postgres(options);
   try {
     await migrate(drizzle(client), { migrationsFolder });
     console.log("Database migrations applied.");

@@ -7,7 +7,13 @@ services:
     env_file:
       - .env
     environment:
-      DATABASE_URL: postgres://${POSTGRES_USER:-university_apply}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@db:5432/${POSTGRES_DB:-university_apply}
+      # Passed as separate variables (not a URL) so any characters are allowed in the password.
+      DATABASE_URL: ""
+      PGHOST: db
+      PGPORT: "5432"
+      PGUSER: ${POSTGRES_USER:-university_apply}
+      PGPASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      PGDATABASE: ${POSTGRES_DB:-university_apply}
     ports:
       # Only reachable from the host itself; expose publicly through Nginx + HTTPS.
       - "127.0.0.1:${APP_PORT:-3010}:3000"
