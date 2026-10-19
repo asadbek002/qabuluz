@@ -7,7 +7,7 @@ import { clientIp, rateLimit } from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
 
-const MAX_FILE_BYTES = 10 * 1024 * 1024;
+const MAX_FILE_BYTES = 20 * 1024 * 1024;
 const MAX_REQUEST_BYTES = 4 * MAX_FILE_BYTES + 1024 * 1024;
 const MAX_TEXT_LENGTH = 200;
 const fileFields = ["passportFile", "certificateFile", "arcFrontFile", "arcBackFile"];
@@ -67,10 +67,10 @@ export async function POST(request: Request) {
     for (const field of fileFields) {
       const file = data.get(field);
       if (!(file instanceof File) || file.size === 0) continue;
-      if (file.size > MAX_FILE_BYTES) return bad(`${file.name} fayli 10 MB dan katta.`);
+      if (file.size > MAX_FILE_BYTES) return bad(`${file.name} fayli 20 MB dan katta.`);
       const bytes = new Uint8Array(await file.arrayBuffer());
       const detected = detectFileType(bytes);
-      if (!detected) return bad("Faqat PDF, JPG va PNG fayllar qabul qilinadi.");
+      if (!detected) return bad("Faqat PDF, JPG va PNG fayllar qabul qilinadi. Rasmni JPG formatida qayta tanlang.");
       const name = file.name.replace(/[\u0000-\u001f\u007f/\\]/g, "_").slice(0, 150) || `${field}.${detected.ext}`;
       pending.push({ field, name, bytes, type: detected.type, ext: detected.ext });
     }

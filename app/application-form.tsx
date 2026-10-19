@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { ArrowLeft, ArrowRight, Check, FileText, GraduationCap, MapPin, ShieldCheck, Upload } from "lucide-react";
+import { compressImage } from "@/lib/compress-image";
 import { baseAdmissionTypes, certificateLevels, cisCountries, genders, languageTypes, mastersProgram, semesters, universities, visaTypes } from "@/lib/universities";
 
 const fieldLabels: Record<string, string> = {
@@ -23,11 +24,14 @@ const requiredByStep: Record<number, string[]> = {
   4: [],
 };
 
+const MAX_FILE_BYTES = 20 * 1024 * 1024;
+
 export default function ApplicationForm() {
   const [step, setStep] = useState(1);
   const [selectedId, setSelectedId] = useState("");
   const [form, setForm] = useState<Record<string, string>>({ semester: "2027-yil mart", admissionType: "1-kurs", languageType: "Mavjud emas", languageLevel: "Mavjud emas", phone: "+8210" });
   const [files, setFiles] = useState<Record<string, File | null>>({});
+  const [processing, setProcessing] = useState<Record<string, boolean>>({});
   const [consent, setConsent] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -37,6 +41,23 @@ export default function ApplicationForm() {
   function update(name: string, value: string) {
     setForm((old) => ({ ...old, [name]: value }));
     setError("");
+  }
+
+  async function pickFile(name: string, file: File | null) {
+    setError("");
+    if (!file) return setFiles((old) => ({ ...old, [name]: null }));
+    setProcessing((old) => ({ ...old, [name]: true }));
+    try {
+      const ready = await compressImage(file).catch(() => file);
+      if (ready.size > MAX_FILE_BYTES) {
+        setFiles((old) => ({ ...old, [name]: null }));
+        setError(`${file.name} fayli 20 MB dan katta. Kichikroq fayl tanlang.`);
+      } else {
+        setFiles((old) => ({ ...old, [name]: ready }));
+      }
+    } finally {
+      setProcessing((old) => ({ ...old, [name]: false }));
+    }
   }
 
   function next() {
@@ -56,8 +77,9 @@ export default function ApplicationForm() {
 
   async function submit() {
     if (!consent) return setError("Ma’lumotlarni qayta ishlashga rozilik bildiring.");
-    const tooBig = Object.values(files).find((file) => file && file.size > 10 * 1024 * 1024);
-    if (tooBig) return setError(`${tooBig.name} fayli 10 MB dan katta.`);
+    if (Object.values(processing).some(Boolean)) return setError("Fayllar tayyorlanmoqda, biroz kuting.");
+    const tooBig = Object.values(files).find((file) => file && file.size > MAX_FILE_BYTES);
+    if (tooBig) return setError(`${tooBig.name} fayli 20 MB dan katta.`);
     setBusy(true); setError("");
     try {
       const data = new FormData();
@@ -160,12 +182,12 @@ export default function ApplicationForm() {
           <Select label={form.languageType === "TOPIK" ? "TOPIK darajasi" : form.languageType === "Mavjud emas" ? "Darajasi yoki bali" : `${form.languageType} darajasi yoki bali`} value={form.languageLevel} onChange={(v) => update("languageLevel", v)} options={certificateLevels[form.languageType] || []} placeholder={form.languageType === "Mavjud emas" ? "Mavjud emas" : "Darajani tanlang"} disabled={form.languageType === "Mavjud emas"}/>
         </div>
         <h3 className="form-heading">Hujjatlar <span>ixtiyoriy</span></h3>
-        <p className="hint">PDF, JPG yoki PNG. Har bir fayl maksimal 10 MB.</p>
+        <p className="hint">PDF yoki rasm (telefon kamerasidan ham bo‘ladi). Rasmlar avtomatik kichraytiriladi, PDF uchun maksimal 20 MB.</p>
         <div className="upload-grid">
-          <UploadField label="Xorijga chiqish pasporti" name="passportFile" files={files} setFiles={setFiles}/>
-          <UploadField label="TOPIK / KIIP / IELTS" name="certificateFile" files={files} setFiles={setFiles}/>
-          <UploadField label="Koreya ID — old tomoni" name="arcFrontFile" files={files} setFiles={setFiles}/>
-          <UploadField label="Koreya ID — orqa tomoni" name="arcBackFile" files={files} setFiles={setFiles}/>
+          <UploadField label="Xorijga chiqish pasporti" name="passportFile" file={files.passportFile} busy={!!processing.passportFile} onPick={pickFile}/>
+          <UploadField label="TOPIK / KIIP / IELTS" name="certificateFile" file={files.certificateFile} busy={!!processing.certificateFile} onPick={pickFile}/>
+          <UploadField label="Koreya ID — old tomoni" name="arcFrontFile" file={files.arcFrontFile} busy={!!processing.arcFrontFile} onPick={pickFile}/>
+          <UploadField label="Koreya ID — orqa tomoni" name="arcBackFile" file={files.arcBackFile} busy={!!processing.arcBackFile} onPick={pickFile}/>
         </div>
       </>}
 
@@ -181,7 +203,7 @@ export default function ApplicationForm() {
       {error && <div className="error" role="alert">{error}</div>}
       <div className="actions">
         {step > 1 && <button className="secondary" onClick={() => {setStep(s => s - 1); setError(""); window.scrollTo({top:0});}}><ArrowLeft size={18}/> Orqaga</button>}
-        {step < 4 ? <button className="primary" onClick={next}>Davom etish <ArrowRight size={18}/></button> : <button className="primary submit" disabled={busy} onClick={submit}>{busy ? "Yuborilmoqda..." : "Arizani yuborish"} <ArrowRight size={18}/></button>}
+        {step < 4 ? <button className="primary" onClick={next}>Davom etish <ArrowRight size={18}/></button> : <button className="primary submit" disabled={busy || Object.values(processing).some(Boolean)} onClick={submit}>{busy ? "Yuborilmoqda..." : "Arizani yuborish"} <ArrowRight size={18}/></button>}
       </div>
     </section>
     <footer>Arizangiz ko‘rib chiqilgandan so‘ng mas’ul mutaxassis siz bilan bog‘lanadi.</footer>
@@ -202,8 +224,11 @@ function Input({label,name,form,update,type="text",placeholder="",wide=false,dis
 function Select({label,value,onChange,options,placeholder,disabled=false}:{label:string;value?:string;onChange:(v:string)=>void;options:string[];placeholder?:string;disabled?:boolean}) {
   return <label className="field"><span>{label} <b>*</b></span><select disabled={disabled} value={value || ""} onChange={(e)=>onChange(e.target.value)}><option value="" disabled>{placeholder || "Tanlang"}</option>{options.map(o=><option key={o}>{o}</option>)}</select></label>;
 }
-function UploadField({label,name,files,setFiles}:{label:string;name:string;files:Record<string,File|null>;setFiles:React.Dispatch<React.SetStateAction<Record<string,File|null>>>}) {
-  return <label className="upload"><Upload size={20}/><span>{files[name]?.name || label}</span><small>{files[name] ? "Fayl tanlandi" : "Fayl tanlash"}</small><input type="file" accept=".pdf,.jpg,.jpeg,.png" onChange={(e)=>setFiles(old=>({...old,[name]:e.target.files?.[0]||null}))}/></label>;
+function formatSize(bytes: number) {
+  return bytes < 1024 * 1024 ? `${Math.max(1, Math.round(bytes / 1024))} KB` : `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}
+function UploadField({label,name,file,busy,onPick}:{label:string;name:string;file?:File|null;busy:boolean;onPick:(name:string,file:File|null)=>void}) {
+  return <label className="upload"><Upload size={20}/><span>{file?.name || label}</span><small>{busy ? "Tayyorlanmoqda..." : file ? `Fayl tanlandi · ${formatSize(file.size)}` : "Fayl tanlash"}</small><input type="file" accept="application/pdf,image/*" disabled={busy} onChange={(e)=>onPick(name, e.target.files?.[0]||null)}/></label>;
 }
 function Review({title,rows}:{title:string;rows:string[][]}) {
   return <div className="review-card"><h3>{title}</h3>{rows.map(([k,v])=><div key={k}><span>{k}</span><strong>{v || "—"}</strong></div>)}</div>;

@@ -6,7 +6,7 @@ Koreya universitetlariga hujjat topshirish sayti (Next.js / vinext + PostgreSQL)
 
 - Talaba 4 qadamda ariza yuboradi (universitet → dastur → ma’lumotlar → tasdiqlash).
 - Telefon `+8210XXXXXXXX` formatida, barcha tanlovlar serverda ham tekshiriladi.
-- PDF/JPG/PNG hujjatlar (har biri 10 MB gacha), fayl turi uning ichidan aniqlanadi.
+- PDF va rasm hujjatlar: telefon rasmlari brauzerda avtomatik kichraytiriladi (JPEG, max 2200px), PDF 20 MB gacha; fayl turi uning ichidan aniqlanadi.
 - Admin (`/admin`) arizalarni ko‘radi, qidiradi, hujjatlarni ochadi va Excel’ga eksport qiladi.
 
 ## Serverga deploy (Ubuntu 22.04/24.04)
