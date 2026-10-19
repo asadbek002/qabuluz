@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ArrowLeft, ArrowRight, Check, FileText, GraduationCap, MapPin, ShieldCheck, Upload } from "lucide-react";
 import { compressImage } from "@/lib/compress-image";
 import { baseAdmissionTypes, certificateLevels, cisCountries, genders, languageTypes, mastersProgram, semesters, universities, visaTypes } from "@/lib/universities";
@@ -36,7 +36,21 @@ export default function ApplicationForm() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [applicationNo, setApplicationNo] = useState("");
+  const stepsRef = useRef<HTMLDivElement>(null);
+  const firstRender = useRef(true);
   const university = useMemo(() => universities.find((u) => u.id === selectedId), [selectedId]);
+
+  // Scroll after the new step has rendered: scrolling inside the click handler raced with the
+  // re-render on mobile Safari and left the page near the (still focused) bottom button,
+  // i.e. at the document uploads instead of the start of the form.
+  useEffect(() => {
+    if (firstRender.current) { firstRender.current = false; return; }
+    (document.activeElement as HTMLElement | null)?.blur();
+    const scroll = () => stepsRef.current?.scrollIntoView({ block: "start", behavior: "instant" });
+    scroll();
+    const frame = requestAnimationFrame(scroll);
+    return () => cancelAnimationFrame(frame);
+  }, [step]);
 
   function update(name: string, value: string) {
     setForm((old) => ({ ...old, [name]: value }));
@@ -72,7 +86,6 @@ export default function ApplicationForm() {
     }
     setError("");
     setStep((s) => Math.min(4, s + 1));
-    window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
   async function submit() {
@@ -122,7 +135,7 @@ export default function ApplicationForm() {
       <div className="hero-stat"><strong>{universities.length}</strong><span>ta universitet</span></div>
     </section>
 
-    <div className="steps">
+    <div className="steps" ref={stepsRef}>
       {["Universitet", "Dastur", "Ma’lumotlar", "Yuborish"].map((label, i) =>
         <div className={step >= i + 1 ? "step active" : "step"} key={label}>
           <span>{step > i + 1 ? <Check size={15}/> : i + 1}</span><em>{label}</em>
@@ -202,7 +215,7 @@ export default function ApplicationForm() {
 
       {error && <div className="error" role="alert">{error}</div>}
       <div className="actions">
-        {step > 1 && <button className="secondary" onClick={() => {setStep(s => s - 1); setError(""); window.scrollTo({top:0});}}><ArrowLeft size={18}/> Orqaga</button>}
+        {step > 1 && <button className="secondary" onClick={() => {setStep(s => s - 1); setError("");}}><ArrowLeft size={18}/> Orqaga</button>}
         {step < 4 ? <button className="primary" onClick={next}>Davom etish <ArrowRight size={18}/></button> : <button className="primary submit" disabled={busy || Object.values(processing).some(Boolean)} onClick={submit}>{busy ? "Yuborilmoqda..." : "Arizani yuborish"} <ArrowRight size={18}/></button>}
       </div>
     </section>

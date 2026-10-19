@@ -59,3 +59,4 @@ footer{padding:10px 24px 40px;text-align:center;color:#7a8699;font-size:12px}.su
 
 /* Keep the connector line from striking through step labels */
 .step em{position:relative;z-index:1;padding-right:10px;background:var(--paper)}
+.steps{scroll-margin-top:16px}
