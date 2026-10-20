@@ -82,7 +82,11 @@ function fixPatronymic(v: string) {
   return v.replace(/([A-Z])(UGLI|OGLI|OʻGʻLI|QIZI|KIZI)$/, "$1 $2");
 }
 
-function splitGivenNames(tokens: string[]) {
+function splitGivenNames(raw: string[]) {
+  // "RAKHIMJONS<UGLI": a filler '<' read as C/K/S glued to the father's name after a consonant.
+  const tokens = [...raw];
+  const n = tokens.length;
+  if (n >= 3 && /^(UGLI|OGLI|QIZI|KIZI)$/.test(tokens[n - 1]) && /[^AEIOU][CKS]$/.test(tokens[n - 2])) tokens[n - 2] = tokens[n - 2].slice(0, -1);
   // MRZ / visual zone given names hold "ELBEK RAKHIMJON UGLI": first token is the name,
   // the rest is the patronymic (otchestvo).
   return { firstName: tokens[0], middleName: fixPatronymic(tokens.slice(1).join(" ")) || undefined };

@@ -115,24 +115,115 @@ function otsu(histogram: number[], total: number) {
   return threshold;
 }
 
-/** 90/270 turn the canvas; small angles (deskew) keep its size on a white background. */
+/** Rotate by any angle; the canvas grows so no corner is cut off (new area is white). */
 function rotate(src: HTMLCanvasElement, deg: number) {
-  const quarter = Math.abs(deg) === 90 || Math.abs(deg) === 270;
+  const rad = (deg * Math.PI) / 180;
+  const cos = Math.abs(Math.cos(rad)), sin = Math.abs(Math.sin(rad));
   const out = document.createElement("canvas");
-  out.width = quarter ? src.height : src.width;
-  out.height = quarter ? src.width : src.height;
+  out.width = Math.round(src.width * cos + src.height * sin);
+  out.height = Math.round(src.width * sin + src.height * cos);
   const ctx = out.getContext("2d")!;
   ctx.fillStyle = "#fff";
   ctx.fillRect(0, 0, out.width, out.height);
   ctx.translate(out.width / 2, out.height / 2);
-  ctx.rotate((deg * Math.PI) / 180);
+  ctx.rotate(rad);
   ctx.drawImage(src, -src.width / 2, -src.height / 2);
   return out;
+}
+
+/**
+ * Angle (degrees, -90…89) that turns the text lines horizontal: the rotation whose horizontal
+ * projection of dark pixels is the most "peaky" (lines of ink separated by blank gaps).
+ * Handles sideways photos (≈ ±90°) as well as tilted ones; upside-down is decided separately.
+ */
+/** Letter-stroke pixels of a downscaled copy (coordinates relative to its centre). */
+function inkPoints(src: HTMLCanvasElement) {
+  const small = prepare(src, { targetWidth: Math.min(800, src.width) });
+  const { width, height } = small;
+  const data = small.getContext("2d")!.getImageData(0, 0, width, height).data;
+  // Ink = pixels clearly darker than their neighbourhood (adaptive threshold via an integral
+  // image), so letter strokes count but large dark areas, photos and page edges do not.
+  const integral = new Float64Array((width + 1) * (height + 1));
+  for (let y = 0; y < height; y++) {
+    let row = 0;
+    for (let x = 0; x < width; x++) {
+      row += data[(y * width + x) * 4];
+      integral[(y + 1) * (width + 1) + x + 1] = integral[y * (width + 1) + x + 1] + row;
+    }
+  }
+  const r = 7;
+  const xs: number[] = [], ys: number[] = [];
+  for (let y = r; y < height - r; y++) for (let x = r; x < width - r; x++) {
+    const a = (y - r) * (width + 1) + (x - r), b = (y - r) * (width + 1) + (x + r + 1);
+    const c = (y + r + 1) * (width + 1) + (x - r), d = (y + r + 1) * (width + 1) + (x + r + 1);
+    const mean = (integral[d] - integral[b] - integral[c] + integral[a]) / ((2 * r + 1) ** 2);
+    if (data[(y * width + x) * 4] < mean - 25) { xs.push(x - width / 2); ys.push(y - height / 2); }
+  }
+  return { xs, ys, width, height, scale: src.width / width };
+}
+
+function textLineAngle(src: HTMLCanvasElement) {
+  const { xs, ys, width, height } = inkPoints(src);
+  if (xs.length < 300) return 0;
+  const half = Math.ceil(Math.hypot(width, height) / 2);
+  // Text lines give a projection with sharp steps between ink rows and blank gaps; the sum of
+  // squared differences between neighbouring rows is largest when the lines are horizontal.
+  const scoreAt = (deg: number) => {
+    const rad = (deg * Math.PI) / 180, s = Math.sin(rad), c = Math.cos(rad);
+    const bins = new Float64Array(2 * half + 2);
+    for (let i = 0; i < xs.length; i++) bins[Math.round(xs[i] * s + ys[i] * c) + half]++;
+    let sum = 0;
+    for (let i = 1; i < bins.length; i++) sum += (bins[i] - bins[i - 1]) ** 2;
+    return sum;
+  };
+  let best = 0, bestScore = -1;
+  for (let deg = -90; deg < 90; deg += 2) { const v = scoreAt(deg); if (v > bestScore) { bestScore = v; best = deg; } }
+  for (let deg = best - 1.5; deg <= best + 1.5; deg += 0.5) { const v = scoreAt(deg); if (v > bestScore) { bestScore = v; best = deg; } }
+  return Math.abs(best) < 0.75 ? 0 : best;
+}
+
+/** Crop to where the text is (plus a margin): drops table/background around the document and
+ *  the empty corners added by rotation, so the "bottom part" crops really hit the MRZ. */
+function cropToInk(src: HTMLCanvasElement) {
+  const { xs, ys, width, height, scale } = inkPoints(src);
+  if (xs.length < 300) return src;
+  const pct = (arr: number[], q: number) => [...arr].sort((a, b) => a - b)[Math.floor((arr.length - 1) * q)];
+  const mx = width * 0.04, my = height * 0.04;
+  const x0 = Math.max(0, pct(xs, 0.005) + width / 2 - mx), x1 = Math.min(width, pct(xs, 0.995) + width / 2 + mx);
+  const y0 = Math.max(0, pct(ys, 0.005) + height / 2 - my), y1 = Math.min(height, pct(ys, 0.995) + height / 2 + my);
+  if ((x1 - x0) * (y1 - y0) > width * height * 0.9) return src;
+  const out = document.createElement("canvas");
+  out.width = Math.round((x1 - x0) * scale);
+  out.height = Math.round((y1 - y0) * scale);
+  out.getContext("2d")!.drawImage(src, x0 * scale, y0 * scale, out.width, out.height, 0, 0, out.width, out.height);
+  return out;
+}
+
+/** Turn the document upright: straighten the text lines, then pick 0° or 180° by OCR confidence. */
+async function upright(src: HTMLCanvasElement) {
+  const angle = textLineAngle(src);
+  const straight = cropToInk(angle ? rotate(src, angle) : src);
+  // Upside-down text still yields "words" with some confidence, so judge by words that are
+  // printed on every Uzbek passport / Korean residence card; fall back to confidence.
+  const keywords = /PASSPORT|PASPORT|REPUBLIC|RESPUBLIKASI|UZBEKISTAN|SURNAME|GIVEN|NAMES|NATIONALITY|BIRTH|AUTHORITY|EXPIRY|RESIDENCE|CARD|IMMIGRATION|OFFICE|CHIEF|P<UZB|<<<|\d{6}-\d{7}/g;
+  const probe = async (deg: number) => {
+    const { text, confidence } = await ocrRaw(prepare(straight, { rotate: deg, targetWidth: 1200 }), "page");
+    const hits = (text.toUpperCase().replace(/\s+(?=[-<])|(?<=[-<])\s+/g, "").match(keywords) ?? []).length;
+    return hits * 1000 + confidence * Math.min(30, (text.match(/[A-Za-z0-9]{3,}/g) ?? []).length) / 100;
+  };
+  const upright0 = await probe(0);
+  // A clear keyword hit at 0° means the photo is already upright: skip the second pass.
+  const upright180 = upright0 >= 3000 ? 0 : await probe(180);
+  return upright180 > upright0 ? rotate(straight, 180) : straight;
 }
 
 const MRZ_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789<";
 
 async function ocr(canvas: HTMLCanvasElement, mode: "page" | "mrz") {
+  return (await ocrRaw(canvas, mode)).text;
+}
+
+async function ocrRaw(canvas: HTMLCanvasElement, mode: "page" | "mrz") {
   const worker = await getWorker();
   await worker.setParameters({
     tessedit_char_whitelist: mode === "mrz" ? MRZ_CHARS : "",
@@ -140,14 +231,14 @@ async function ocr(canvas: HTMLCanvasElement, mode: "page" | "mrz") {
     preserve_interword_spaces: "1",
   });
   const { data } = await worker.recognize(canvas);
-  return data.text;
+  return { text: data.text, confidence: data.confidence };
 }
 
 export type PassportResult = { data: PassportData | null; pdf: boolean };
 
 /** Reads the passport data page: dedicated MRZ passes first, then the whole page as fallback. */
 export async function readPassport(file: File): Promise<PassportResult> {
-  const source = await toCanvas(file);
+  const source = await upright(await toCanvas(file));
   let best: PassportData | null = null;
   // Cheap passes first; the later ones (upscaled black/white, deskewed, sideways) only run
   // while the result is still incomplete, i.e. for low-quality photos.
@@ -159,8 +250,8 @@ export async function readPassport(file: File): Promise<PassportResult> {
     [{ top: 0.6, targetWidth: 2000, rotate: -3 }, "mrz"],
     [{ top: 0.6, targetWidth: 2000, rotate: 3 }, "mrz"],
     [{ targetWidth: 2600, binarize: true }, "page"],
-    [{ rotate: 90, top: 0.6, targetWidth: 1800 }, "mrz"],
-    [{ rotate: 270, top: 0.6, targetWidth: 1800 }, "mrz"],
+    // In case the upright guess was wrong (e.g. a very dark photo).
+    [{ rotate: 180, top: 0.6, targetWidth: 1800 }, "mrz"],
   ];
   let pageText = "";
   let mrzText = "";
@@ -185,9 +276,9 @@ function score(p: PassportData) {
 }
 
 export async function readResidenceCard(file: File): Promise<ResidenceCardData | null> {
-  const source = await toCanvas(file);
+  const source = await upright(await toCanvas(file));
   let best: ResidenceCardData | null = null;
-  for (const opts of [{ targetWidth: 1600 }, { targetWidth: 2400 }, { rotate: 90 as const, targetWidth: 1600 }, { rotate: 270 as const, targetWidth: 1600 }]) {
+  for (const opts of [{ targetWidth: 1600 }, { targetWidth: 2400 }, { targetWidth: 1600, binarize: true }, { rotate: 180, targetWidth: 1600 }]) {
     const parsed = parseResidenceCard(await ocr(prepare(source, opts), "page"));
     if (parsed && (!best || Object.keys(parsed).length > Object.keys(best).length)) best = parsed;
     if (best?.arcNumber && best.visaType && best.names) break;
