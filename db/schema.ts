@@ -28,4 +28,6 @@ export const applications = pgTable("applications", {
   track: text("track").notNull(),
   semester: text("semester").notNull(),
   documents: text("documents").notNull().default("{}"),
+  /** Values read from the uploaded passport / residence card (JSON), to flag manual edits. */
+  ocrData: text("ocr_data"),
 });

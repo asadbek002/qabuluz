@@ -5,6 +5,7 @@ import { applications } from "@/db/schema";
 import { universities } from "@/lib/universities";
 import { isAdmin } from "@/lib/admin-auth";
 import { toHangulName } from "@/lib/korean";
+import { arcMatchesBirthDate } from "@/lib/ocr/parse";
 import { login, logout } from "./actions";
 
 export const dynamic = "force-dynamic";
@@ -31,11 +32,12 @@ export default async function AdminPage({ searchParams }: { searchParams: Promis
       <div className="admin-head"><div><p className="eyebrow">Boshqaruv</p><h1>Talabalar arizalari</h1></div><div className="admin-head-actions"><span>{filtered.length} ta ariza</span><a className="export-button" href={exportHref} download>Excel yuklab olish</a></div></div>
       <form className="filters"><input name="q" defaultValue={params.q} placeholder="Ism, telefon yoki ariza raqami"/><select name="university" defaultValue={params.university || ""}><option value="">Barcha universitetlar</option>{universities.map(u=><option value={u.id} key={u.id}>{u.ko} — {u.uz}</option>)}</select><button>Qidirish</button></form>
       <div className="application-list">
-        {filtered.map((a) => { const u=universities.find(u=>u.id===a.universityId); const docs=parseDocs(a.documents); return <details className="application-row" key={a.id}>
-          <summary><div><strong>{a.lastName} {a.firstName}</strong><span>{a.applicationNo}</span></div><div><strong>{u?.ko || a.universityId}</strong><span>{a.campus} · {a.program}</span></div><div><strong>{a.languageType}: {a.languageLevel}</strong><span>{new Date(a.createdAt).toLocaleDateString("uz-UZ")}</span></div></summary>
+        {filtered.map((a) => { const u=universities.find(u=>u.id===a.universityId); const docs=parseDocs(a.documents); const checks=ocrChecks(a); const mismatches=checks.filter(c=>c.status==="diff").length; return <details className="application-row" key={a.id}>
+          <summary><div><strong>{a.lastName} {a.firstName}</strong><span>{a.applicationNo}</span></div><div><strong>{u?.ko || a.universityId}</strong><span>{a.campus} · {a.program}</span></div><div><strong>{a.languageType}: {a.languageLevel}</strong><span>{new Date(a.createdAt).toLocaleDateString("uz-UZ")}{mismatches ? ` · ⚠ ${mismatches} ta farq` : ""}</span></div></summary>
           <div className="application-detail">
             <Info title="Shaxsiy ma’lumotlar" rows={[["F.I.Sh.",`${a.lastName} ${a.firstName} ${a.middleName}`],["Koreyscha ism",toHangulName(a.lastName, a.firstName)],["Tug‘ilgan sana",a.birthDate],["Jinsi",a.gender],["Fuqaroligi",a.citizenship],["Telefon",a.phone],["Telegram",a.telegram],["E-mail",a.email],["Manzil",a.address],["Viza",a.visaType],["Pasport",a.passportNumber],["ID karta",a.arcNumber || "—"]]}/>
             <Info title="Ta’lim va dastur" rows={[["Ta’lim muassasasi",a.previousSchool],["Bitirgan sana",a.graduationDate],["Qabul turi",a.admissionType],["Til sertifikati",`${a.languageType}: ${a.languageLevel}`],["Universitet",`${u?.ko} — ${u?.uz}`],["Kampus",a.campus],["Yo‘nalish",a.program],["Ta’lim tili",a.track],["Semestr",a.semester]]}/>
+            <div className="admin-docs"><h3>Hujjat bilan solishtirish</h3>{checks.length ? <table className="ocr-table"><thead><tr><th>Maydon</th><th>Arizada</th><th>Hujjatda (OCR)</th><th></th></tr></thead><tbody>{checks.map(c=><tr key={c.label} className={c.status}><td>{c.label}</td><td>{c.submitted || "—"}</td><td>{c.read || "—"}</td><td>{c.status==="same" ? "✓ mos" : c.status==="diff" ? "⚠ o‘zgartirilgan" : "o‘qilmagan"}</td></tr>)}</tbody></table> : <span>Hujjatdan avtomatik o‘qilmagan (qo‘lda kiritilgan).</span>}</div>
             <div className="admin-docs"><h3>Hujjatlar</h3>{Object.keys(docs).length ? Object.entries(docs).map(([field,d])=><a key={field} href={`/api/documents/${a.id}/${field}`} target="_blank" rel="noopener noreferrer">{d.name}</a>) : <span>Hujjat yuklanmagan</span>}</div>
           </div>
         </details>})}
@@ -51,4 +53,28 @@ function Info({title,rows}:{title:string;rows:(string|null)[][]}) {
 
 function parseDocs(value: string): Record<string, { name: string }> {
   try { return JSON.parse(value || "{}"); } catch { return {}; }
+}
+
+const passportLabels: [string, string][] = [["lastName","Familiya"],["firstName","Ism"],["middleName","Otchestvo"],["passportNumber","Pasport raqami"],["birthDate","Tug‘ilgan sana"],["gender","Jinsi"],["citizenship","Fuqarolik"]];
+
+type Application = typeof applications.$inferSelect;
+type Check = { label: string; submitted: string; read?: string; status: "same" | "diff" | "missing" };
+
+/** Compare what the student submitted with what OCR read from the uploaded documents. */
+function ocrChecks(a: Application): Check[] {
+  let ocr: { passport?: Record<string, string>; arc?: Record<string, string> } = {};
+  try { ocr = JSON.parse(a.ocrData || "{}"); } catch {}
+  const norm = (v?: string | null) => (v || "").toUpperCase().replace(/\s+/g, " ").trim();
+  const row = (label: string, submitted: string | null, read?: string): Check =>
+    ({ label, submitted: submitted || "", read, status: !read ? "missing" : norm(read) === norm(submitted) ? "same" : "diff" });
+  const out: Check[] = [];
+  if (ocr.passport) for (const [key, label] of passportLabels) out.push(row(label, a[key as keyof Application] as string, ocr.passport[key]));
+  if (ocr.arc) {
+    out.push(row("ID karta raqami", a.arcNumber, ocr.arc.arcNumber));
+    out.push(row("Viza", a.visaType, ocr.arc.visaType));
+  }
+  if (a.arcNumber && /^\d{6}-\d{7}$/.test(a.arcNumber) && !arcMatchesBirthDate(a.arcNumber, a.birthDate)) {
+    out.push({ label: "ID raqam ↔ tug‘ilgan sana", submitted: a.birthDate, read: a.arcNumber.slice(0, 6), status: "diff" });
+  }
+  return out;
 }

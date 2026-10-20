@@ -101,7 +101,11 @@ export const cisCountries = ["O‘zbekiston", "Qozog‘iston", "Qirg‘iziston",
 // Shared by the form and the API so server-side validation matches what the UI offers.
 export const mastersProgram = "Magistratura — yo‘nalishni maslahatchi bilan tanlayman";
 export const genders = ["Erkak", "Ayol"];
-export const visaTypes = ["Koreyada yashamayman", "D-2", "D-4", "E-9", "E-7", "F-2", "F-4", "F-6", "Boshqa"];
+export const nonResident = "Koreyada yashamayman";
+export const visaCodes = ["D-2", "D-4", "D-8", "D-10", "E-7", "E-9", "F-1", "F-2", "F-3", "F-4", "F-5", "F-6", "G-1", "H-2"];
+export const visaTypes = [nonResident, ...visaCodes, "Boshqa"];
+/** Any Korean status code read from a residence card, e.g. "C-3" or "F-2-7". */
+export const visaCodePattern = /^[A-H]-\d{1,2}(-\d{1,2})?$/;
 export const semesters = ["2027-yil mart", "2027-yil sentabr"];
 export const baseAdmissionTypes = ["1-kurs", "3-kursdan o‘qishni ko‘chirish", "4-kursdan o‘qishni ko‘chirish"];
 export const languageTypes = ["Mavjud emas", "TOPIK", "KIIP", "IELTS"];

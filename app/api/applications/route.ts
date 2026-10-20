@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getDb } from "@/db";
 import { applications } from "@/db/schema";
-import { baseAdmissionTypes, certificateLevels, cisCountries, genders, mastersProgram, semesters, universities, visaTypes } from "@/lib/universities";
+import { baseAdmissionTypes, certificateLevels, cisCountries, genders, mastersProgram, nonResident, semesters, universities, visaCodePattern, visaTypes } from "@/lib/universities";
 import { detectFileType, removeApplicationUploads, saveUpload } from "@/lib/uploads";
 import { clientIp, rateLimit } from "@/lib/rate-limit";
 
@@ -14,6 +14,29 @@ const fileFields = ["passportFile", "certificateFile", "arcFrontFile", "arcBackF
 const required = ["lastName","firstName","middleName","birthDate","gender","citizenship","phone","telegram","email","address","visaType","previousSchool","graduationDate","admissionType","languageType","languageLevel","passportNumber","universityId","campus","program","track","semester"];
 
 const bad = (error: string, status = 400) => NextResponse.json({ error }, { status });
+
+const ocrKeys = { passport: ["lastName", "firstName", "middleName", "passportNumber", "birthDate", "gender", "citizenship", "verified"], arc: ["arcNumber", "visaType"] } as const;
+
+/** Keep only the known OCR fields (short strings) sent by the form. */
+function sanitizeOcr(raw: string) {
+  try {
+    const input = JSON.parse(raw) as Record<string, Record<string, unknown> | null>;
+    const out: Record<string, Record<string, string | boolean>> = {};
+    for (const [doc, keys] of Object.entries(ocrKeys)) {
+      const src = input?.[doc];
+      if (!src || typeof src !== "object") continue;
+      const picked: Record<string, string | boolean> = {};
+      for (const k of keys) {
+        const v = src[k];
+        if (typeof v === "boolean" || (typeof v === "string" && v.length <= MAX_TEXT_LENGTH)) picked[k] = v;
+      }
+      if (Object.keys(picked).length) out[doc] = picked;
+    }
+    return Object.keys(out).length ? JSON.stringify(out) : null;
+  } catch {
+    return null;
+  }
+}
 
 function validBirthDate(value: string) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
@@ -49,7 +72,7 @@ export async function POST(request: Request) {
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(get("email"))) return bad("Elektron pochta manzili noto‘g‘ri.");
     if (!validBirthDate(get("birthDate"))) return bad("Tug‘ilgan sana noto‘g‘ri.");
     if (!/^(19[5-9]\d|20\d\d)-(0[1-9]|1[0-2])$/.test(get("graduationDate"))) return bad("Bitirgan sanani yil va oy ko‘rinishida kiriting.");
-    if (!genders.includes(get("gender")) || !cisCountries.includes(get("citizenship")) || !visaTypes.includes(get("visaType"))) {
+    if (!genders.includes(get("gender")) || !cisCountries.includes(get("citizenship")) || !(visaTypes.includes(get("visaType")) || visaCodePattern.test(get("visaType")))) {
       return bad("Shaxsiy ma’lumotlar noto‘g‘ri tanlangan.");
     }
     if (!university.campuses.includes(get("campus")) || !university.tracks.includes(get("track")) || !semesters.includes(get("semester"))) {
@@ -64,8 +87,11 @@ export async function POST(request: Request) {
     if (get("languageType") === "Mavjud emas" ? get("languageLevel") !== "Mavjud emas" : !certificateLevels[get("languageType")]?.includes(get("languageLevel"))) {
       return bad("Til sertifikati darajasi noto‘g‘ri tanlangan.");
     }
-    const livesInKorea = get("visaType") !== "Koreyada yashamayman";
+    const livesInKorea = get("visaType") !== nonResident;
     if (livesInKorea && !get("arcNumber")) return bad("Koreya ID karta raqamini kiriting.");
+    const hasFile = (field: string) => { const f = data.get(field); return f instanceof File && f.size > 0; };
+    if (!hasFile("passportFile")) return bad("Xorijga chiqish pasporti faylini yuklang.");
+    if (livesInKorea && (!hasFile("arcFrontFile") || !hasFile("arcBackFile"))) return bad("Koreya ID kartaning ikkala tomonini yuklang.");
 
     // Validate every file before writing anything to disk.
     const pending: { field: string; name: string; bytes: Uint8Array; type: string; ext: string }[] = [];
@@ -98,6 +124,7 @@ export async function POST(request: Request) {
       languageType:get("languageType"), languageLevel:get("languageLevel"), passportNumber:get("passportNumber"),
       arcNumber: livesInKorea ? get("arcNumber") : null, universityId:get("universityId"), campus:get("campus"),
       program:get("program"), track:get("track"), semester:get("semester"), documents:JSON.stringify(documents),
+      ocrData: sanitizeOcr(String(data.get("ocr") || "")),
     });
     return NextResponse.json({ ok: true, applicationNo });
   } catch (error) {

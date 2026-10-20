@@ -4,7 +4,9 @@ Koreya universitetlariga hujjat topshirish sayti (Next.js / vinext + PostgreSQL)
 
 ## Imkoniyatlar
 
-- Talaba 4 qadamda ariza yuboradi (universitet → dastur → ma’lumotlar → tasdiqlash).
+- Talaba 5 qadamda ariza yuboradi (universitet → dastur → hujjatlar → ma’lumotlar → tasdiqlash).
+- Hujjatlar qadamida zagranpassport (majburiy) va Koreyada yashovchilar uchun Koreya ID kartaning ikkala tomoni (majburiy) yuklanadi. Hujjatlar talabaning brauzerida OCR qilinadi (tesseract.js, rasm hech qayerga yuborilmaydi): passport MRZ’idan F.I.Sh. (otchestvo bilan), pasport raqami, tug‘ilgan sana, jins va fuqarolik; ID kartadan ID raqam va viza kodi olinib, keyingi sahifa avtomatik to‘ldiriladi. JPG, PNG, WebP, HEIC (brauzer ochsa) va PDF (1-sahifa) o‘qiladi. Admin panelda arizadagi qiymatlar hujjatdan o‘qilganlari bilan solishtiriladi.
+- OCR fayllari (`public/ocr/`) build vaqtida `scripts/copy-ocr-assets.mjs` orqali `node_modules` dan nusxalanadi va saytning o‘zidan beriladi (Nginx’da `gzip` yoqilgan bo‘lsin — `deploy/nginx.conf`).
 - Telefon `+8210XXXXXXXX` formatida, barcha tanlovlar serverda ham tekshiriladi.
 - PDF va rasm hujjatlar: telefon rasmlari brauzerda avtomatik kichraytiriladi (JPEG, max 2200px), PDF 20 MB gacha; fayl turi uning ichidan aniqlanadi.
 - Admin (`/admin`) arizalarni ko‘radi, qidiradi, hujjatlarni ochadi va Excel’ga eksport qiladi.

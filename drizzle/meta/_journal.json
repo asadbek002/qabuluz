@@ -15,6 +15,13 @@
       "when": 1792481393875,
       "tag": "0001_damp_silver_fox",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1792486323465,
+      "tag": "0002_boring_mulholland_black",
+      "breakpoints": true
     }
   ]
 }

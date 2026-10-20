@@ -1,9 +1,10 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, ArrowRight, Check, FileText, GraduationCap, MapPin, ShieldCheck, Upload } from "lucide-react";
+import { AlertTriangle, ArrowLeft, ArrowRight, Camera, Check, FileText, GraduationCap, Loader2, MapPin, ScanText, ShieldCheck, Upload } from "lucide-react";
 import { compressImage } from "@/lib/compress-image";
-import { baseAdmissionTypes, certificateLevels, cisCountries, genders, languageTypes, mastersProgram, semesters, universities, visaTypes } from "@/lib/universities";
+import type { PassportData, ResidenceCardData } from "@/lib/ocr/parse";
+import { baseAdmissionTypes, certificateLevels, cisCountries, genders, languageTypes, mastersProgram, nonResident, semesters, universities, visaCodes } from "@/lib/universities";
 
 const fieldLabels: Record<string, string> = {
   lastName: "Familiya", firstName: "Ism", middleName: "Otchestvo",
@@ -17,12 +18,19 @@ const fieldLabels: Record<string, string> = {
   track: "Ta’lim tili", semester: "Qabul semestri"
 };
 
+const STEPS = ["Universitet", "Dastur", "Hujjatlar", "Ma’lumotlar", "Yuborish"];
+const LAST_STEP = STEPS.length;
+
 const requiredByStep: Record<number, string[]> = {
   1: [],
   2: ["campus", "program", "track", "semester"],
-  3: ["lastName", "firstName", "middleName", "birthDate", "gender", "citizenship", "phone", "telegram", "email", "address", "visaType", "previousSchool", "graduationDate", "admissionType", "languageType", "languageLevel", "passportNumber"],
-  4: [],
+  3: [],
+  4: ["lastName", "firstName", "middleName", "birthDate", "gender", "citizenship", "phone", "telegram", "email", "address", "visaType", "previousSchool", "graduationDate", "admissionType", "languageType", "languageLevel", "passportNumber"],
+  5: [],
 };
+
+type OcrState = "reading" | "done" | "partial" | "failed";
+const passportFields = ["lastName", "firstName", "middleName", "passportNumber", "birthDate", "gender", "citizenship"] as const;
 
 const MAX_FILE_BYTES = 20 * 1024 * 1024;
 
@@ -32,6 +40,10 @@ export default function ApplicationForm() {
   const [form, setForm] = useState<Record<string, string>>({ semester: "2027-yil mart", admissionType: "1-kurs", languageType: "Mavjud emas", languageLevel: "Mavjud emas", phone: "+8210" });
   const [files, setFiles] = useState<Record<string, File | null>>({});
   const [processing, setProcessing] = useState<Record<string, boolean>>({});
+  const [residence, setResidence] = useState<"" | "yes" | "no">("");
+  const [ocrStatus, setOcrStatus] = useState<Record<string, OcrState>>({});
+  const [ocr, setOcr] = useState<{ passport?: PassportData; arc?: ResidenceCardData }>({});
+  const [autoFilled, setAutoFilled] = useState<Record<string, boolean>>({});
   const [consent, setConsent] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -52,14 +64,64 @@ export default function ApplicationForm() {
     return () => cancelAnimationFrame(frame);
   }, [step]);
 
+  // Start downloading the OCR engine as soon as the documents step opens.
+  useEffect(() => {
+    if (step === 3) import("@/lib/ocr/read-document").then((m) => m.preloadOcr()).catch(() => {});
+  }, [step]);
+
   function update(name: string, value: string) {
     setForm((old) => ({ ...old, [name]: value }));
+    setAutoFilled((old) => (old[name] ? { ...old, [name]: false } : old));
     setError("");
+  }
+
+  function applyOcr(values: Record<string, string | undefined>) {
+    const filled = Object.fromEntries(Object.entries(values).filter(([, v]) => v)) as Record<string, string>;
+    setForm((old) => ({ ...old, ...filled }));
+    setAutoFilled((old) => ({ ...old, ...Object.fromEntries(Object.keys(filled).map((k) => [k, true])) }));
+  }
+
+  async function readDocument(name: string, file: File) {
+    if (name !== "passportFile" && name !== "arcFrontFile") return;
+    setOcrStatus((old) => ({ ...old, [name]: "reading" }));
+    try {
+      const { readPassport, readResidenceCard } = await import("@/lib/ocr/read-document");
+      if (name === "passportFile") {
+        const { data } = await readPassport(file);
+        setOcr((old) => ({ ...old, passport: data ?? undefined }));
+        if (data) applyOcr(Object.fromEntries(passportFields.map((k) => [k, data[k]])));
+        const found = data ? passportFields.filter((k) => data[k]).length : 0;
+        setOcrStatus((old) => ({ ...old, [name]: !data || found === 0 ? "failed" : data.verified && found >= 6 ? "done" : "partial" }));
+      } else {
+        const data = await readResidenceCard(file);
+        setOcr((old) => ({ ...old, arc: data ?? undefined }));
+        if (data) applyOcr({ arcNumber: data.arcNumber, visaType: data.visaType });
+        setOcrStatus((old) => ({ ...old, [name]: !data ? "failed" : data.arcNumber && data.visaType ? "done" : "partial" }));
+      }
+    } catch (e) {
+      console.error(e);
+      setOcrStatus((old) => ({ ...old, [name]: "failed" }));
+    }
+  }
+
+  function chooseResidence(value: "yes" | "no") {
+    setResidence(value);
+    setError("");
+    if (value === "no") {
+      setForm((old) => ({ ...old, visaType: nonResident, arcNumber: "" }));
+      setFiles((old) => ({ ...old, arcFrontFile: null, arcBackFile: null }));
+      setOcr((old) => ({ ...old, arc: undefined }));
+      setOcrStatus((old) => Object.fromEntries(Object.entries(old).filter(([k]) => k !== "arcFrontFile")));
+    } else if (form.visaType === nonResident) {
+      setForm((old) => ({ ...old, visaType: "" }));
+    }
   }
 
   async function pickFile(name: string, file: File | null) {
     setError("");
     if (!file) return setFiles((old) => ({ ...old, [name]: null }));
+    // OCR reads the original file (best quality) while the upload copy is being shrunk.
+    void readDocument(name, file);
     setProcessing((old) => ({ ...old, [name]: true }));
     try {
       const ready = await compressImage(file).catch(() => file);
@@ -78,14 +140,22 @@ export default function ApplicationForm() {
     if (step === 1 && !selectedId) return setError("Davom etish uchun universitetni tanlang.");
     const missing = (requiredByStep[step] || []).find((name) => !form[name]?.trim());
     if (missing) return setError(`“${fieldLabels[missing]}” maydonini to‘ldiring.`);
-    if (step === 3 && !/^\+8210\d{8}$/.test(form.phone || "")) {
+    if (step === 3) {
+      if (!residence) return setError("Koreyada yashaysizmi — javobni tanlang.");
+      if (!files.passportFile) return setError("Xorijga chiqish pasportini yuklang.");
+      if (residence === "yes" && (!files.arcFrontFile || !files.arcBackFile)) return setError("Koreya ID kartaning ikkala tomonini yuklang.");
+      if (Object.values(processing).some(Boolean) || Object.values(ocrStatus).includes("reading")) {
+        return setError("Hujjatlar o‘qilmoqda, bir necha soniya kuting.");
+      }
+    }
+    if (step === 4 && !/^\+8210\d{8}$/.test(form.phone || "")) {
       return setError("Telefon raqamini +8210 dan keyin 8 ta raqam bilan kiriting.");
     }
-    if (step === 3 && form.visaType !== "Koreyada yashamayman" && !form.arcNumber?.trim()) {
-      return setError("Koreyada yashasangiz, ID karta raqamini kiriting.");
+    if (step === 4 && residence === "yes" && !form.arcNumber?.trim()) {
+      return setError("Koreya ID karta raqamini kiriting.");
     }
     setError("");
-    setStep((s) => Math.min(4, s + 1));
+    setStep((s) => Math.min(LAST_STEP, s + 1));
   }
 
   async function submit() {
@@ -98,6 +168,7 @@ export default function ApplicationForm() {
       const data = new FormData();
       Object.entries(form).forEach(([key, value]) => data.append(key, value));
       data.append("universityId", selectedId);
+      data.append("ocr", JSON.stringify(ocr));
       Object.entries(files).forEach(([key, file]) => file && data.append(key, file));
       const response = await fetch("/api/applications", { method: "POST", body: data });
       const result = await response.json().catch(() => ({})) as { ok?: boolean; applicationNo?: string; error?: string };
@@ -136,7 +207,7 @@ export default function ApplicationForm() {
     </section>
 
     <div className="steps" ref={stepsRef}>
-      {["Universitet", "Dastur", "Ma’lumotlar", "Yuborish"].map((label, i) =>
+      {STEPS.map((label, i) =>
         <div className={step >= i + 1 ? "step active" : "step"} key={label}>
           <span>{step > i + 1 ? <Check size={15}/> : i + 1}</span><em>{label}</em>
         </div>)}
@@ -171,22 +242,48 @@ export default function ApplicationForm() {
       </>}
 
       {step === 3 && <>
-        <div className="section-title"><p>3-qadam</p><h2>Talaba ma’lumotlari</h2><span>Ma’lumotlarni pasportdagidek aniq kiriting.</span></div>
+        <div className="section-title"><p>3-qadam</p><h2>Hujjatlarni yuklang</h2><span>Hujjatlardagi ma’lumotlar keyingi sahifaga avtomatik to‘ldiriladi.</span></div>
+        <h3 className="form-heading">Koreyada yashaysizmi?</h3>
+        <div className="choice-row">
+          <button type="button" className={residence === "yes" ? "choice selected" : "choice"} onClick={() => chooseResidence("yes")}><strong>Ha, Koreyada yashayman</strong><small>Koreya ID karta (외국인등록증) bor</small></button>
+          <button type="button" className={residence === "no" ? "choice selected" : "choice"} onClick={() => chooseResidence("no")}><strong>Yo‘q</strong><small>Hozir Koreyadan tashqarida yashayman</small></button>
+        </div>
+        {residence && <>
+          <h3 className="form-heading">Hujjatlar</h3>
+          <div className="info-box"><Camera size={19}/><span>Hujjatni tekis joyga qo‘yib, yorug‘da suratga oling. Passportning pastidagi 2 qator kod (<b>P&lt;UZB…</b>) to‘liq va aniq ko‘rinsin. PDF, JPG, PNG va boshqa rasm formatlari qabul qilinadi.</span></div>
+          <div className="upload-grid">
+            <UploadField label="Xorijga chiqish pasporti" required name="passportFile" file={files.passportFile} busy={!!processing.passportFile} ocr={ocrStatus.passportFile} onPick={pickFile}/>
+            {residence === "yes" && <UploadField label="Koreya ID karta — old tomoni" required name="arcFrontFile" file={files.arcFrontFile} busy={!!processing.arcFrontFile} ocr={ocrStatus.arcFrontFile} onPick={pickFile}/>}
+            {residence === "yes" && <UploadField label="Koreya ID karta — orqa tomoni" required name="arcBackFile" file={files.arcBackFile} busy={!!processing.arcBackFile} onPick={pickFile}/>}
+            <UploadField label="TOPIK / KIIP / IELTS sertifikati (ixtiyoriy)" name="certificateFile" file={files.certificateFile} busy={!!processing.certificateFile} onPick={pickFile}/>
+          </div>
+        </>}
+      </>}
+
+      {step === 4 && <>
+        <div className="section-title"><p>4-qadam</p><h2>Talaba ma’lumotlari</h2><span>Ma’lumotlarni tekshiring va qolganlarini to‘ldiring.</span></div>
+        {Object.values(autoFilled).some(Boolean) && <div className="notice ok"><ScanText size={19}/><span>Yashil maydonlar hujjatdan avtomatik to‘ldirildi. Iltimos, hujjat bilan solishtirib tekshirib chiqing.</span></div>}
+        {(ocrStatus.passportFile === "failed" || ocrStatus.passportFile === "partial") && <div className="notice warn"><AlertTriangle size={19}/><span>Passportni to‘liq o‘qib bo‘lmadi. Bo‘sh maydonlarni pasportdagidek qo‘lda to‘ldiring.</span></div>}
         <h3 className="form-heading">Shaxsiy ma’lumotlar</h3>
         <div className="form-grid">
-          <Input label="Familiya (pasportdagidek, lotincha)" name="lastName" placeholder="ALIYEV" form={form} update={update}/>
-          <Input label="Ism (pasportdagidek, lotincha)" name="firstName" placeholder="VALI" form={form} update={update}/>
-          <Input label="Otchestvo" name="middleName" form={form} update={update}/>
-          <Input label="Tug‘ilgan sana" name="birthDate" type="date" form={form} update={update}/>
-          <Select label="Jinsi" value={form.gender} onChange={(v) => update("gender", v)} options={genders} placeholder="Tanlang"/>
-          <Select label="Fuqaroligi" value={form.citizenship} onChange={(v) => update("citizenship", v)} options={cisCountries} placeholder="Davlatni tanlang"/>
+          <Input label="Familiya (pasportdagidek, lotincha)" name="lastName" placeholder="ALIYEV" form={form} update={update} auto={autoFilled}/>
+          <Input label="Ism (pasportdagidek, lotincha)" name="firstName" placeholder="VALI" form={form} update={update} auto={autoFilled}/>
+          <Input label="Otchestvo" name="middleName" placeholder="GANI UGLI" form={form} update={update} auto={autoFilled}/>
+          <Input label="Tug‘ilgan sana" name="birthDate" type="date" form={form} update={update} auto={autoFilled}/>
+          <Select label="Jinsi" value={form.gender} onChange={(v) => update("gender", v)} options={genders} placeholder="Tanlang" auto={autoFilled.gender}/>
+          <Select label="Fuqaroligi" value={form.citizenship} onChange={(v) => update("citizenship", v)} options={cisCountries} placeholder="Davlatni tanlang" auto={autoFilled.citizenship}/>
+          <Input label="Xorijga chiqish pasporti raqami" name="passportNumber" placeholder="FA1234567" form={form} update={update} auto={autoFilled}/>
+          {residence === "yes" && <>
+            <Input label="Koreya ID karta raqami" name="arcNumber" placeholder="000000-0000000" form={form} update={update} auto={autoFilled}/>
+            <Select label="Viza turi" value={form.visaType} onChange={(v) => update("visaType", v)} options={[...new Set([...visaCodes, ...(form.visaType && form.visaType !== nonResident ? [form.visaType] : []), "Boshqa"])]} placeholder="Tanlang" auto={autoFilled.visaType}/>
+          </>}
+        </div>
+        <h3 className="form-heading">Aloqa ma’lumotlari</h3>
+        <div className="form-grid">
           <Input label="Telefon raqami" name="phone" type="tel" placeholder="+821012345678" form={form} update={update}/>
           <Input label="Telegram username" name="telegram" placeholder="@username" form={form} update={update}/>
           <Input label="Elektron pochta" name="email" type="email" form={form} update={update}/>
           <Input label="Hozirgi yashash manzili" name="address" form={form} update={update} wide/>
-          <Select label="Viza turi" value={form.visaType} onChange={(v) => update("visaType", v)} options={visaTypes} placeholder="Tanlang"/>
-          {form.visaType && form.visaType !== "Koreyada yashamayman" && <Input label="Koreya ID karta raqami" name="arcNumber" form={form} update={update}/>}
-          <Input label="Xorijga chiqish pasporti raqami" name="passportNumber" form={form} update={update}/>
         </div>
         <h3 className="form-heading">Ta’lim va til ma’lumotlari</h3>
         <div className="form-grid">
@@ -195,20 +292,13 @@ export default function ApplicationForm() {
           <Select label="Til sertifikati" value={form.languageType} onChange={(v) => {update("languageType", v); update("languageLevel", v === "Mavjud emas" ? "Mavjud emas" : "");}} options={languageTypes}/>
           <Select label={form.languageType === "TOPIK" ? "TOPIK darajasi" : form.languageType === "Mavjud emas" ? "Darajasi yoki bali" : `${form.languageType} darajasi yoki bali`} value={form.languageLevel} onChange={(v) => update("languageLevel", v)} options={certificateLevels[form.languageType] || []} placeholder={form.languageType === "Mavjud emas" ? "Mavjud emas" : "Darajani tanlang"} disabled={form.languageType === "Mavjud emas"}/>
         </div>
-        <h3 className="form-heading">Hujjatlar <span>ixtiyoriy</span></h3>
-        <p className="hint">PDF yoki rasm (telefon kamerasidan ham bo‘ladi). Rasmlar avtomatik kichraytiriladi, PDF uchun maksimal 20 MB.</p>
-        <div className="upload-grid">
-          <UploadField label="Xorijga chiqish pasporti" name="passportFile" file={files.passportFile} busy={!!processing.passportFile} onPick={pickFile}/>
-          <UploadField label="TOPIK / KIIP / IELTS" name="certificateFile" file={files.certificateFile} busy={!!processing.certificateFile} onPick={pickFile}/>
-          <UploadField label="Koreya ID — old tomoni" name="arcFrontFile" file={files.arcFrontFile} busy={!!processing.arcFrontFile} onPick={pickFile}/>
-          <UploadField label="Koreya ID — orqa tomoni" name="arcBackFile" file={files.arcBackFile} busy={!!processing.arcBackFile} onPick={pickFile}/>
-        </div>
       </>}
 
-      {step === 4 && university && <>
-        <div className="section-title"><p>4-qadam</p><h2>Tekshirish va yuborish</h2><span>Asosiy ma’lumotlaringizni yana bir bor tekshiring.</span></div>
+      {step === 5 && university && <>
+        <div className="section-title"><p>5-qadam</p><h2>Tekshirish va yuborish</h2><span>Asosiy ma’lumotlaringizni yana bir bor tekshiring.</span></div>
         <div className="review">
           <Review title="Talaba" rows={[["F.I.Sh.", `${form.lastName} ${form.firstName} ${form.middleName}`], ["Telefon", form.phone], ["Fuqaroligi", form.citizenship], ["Pasport", form.passportNumber]]}/>
+          <Review title="Hujjatlar" rows={[["Pasport", files.passportFile?.name || "—"], ...(residence === "yes" ? [["ID karta (old)", files.arcFrontFile?.name || "—"], ["ID karta (orqa)", files.arcBackFile?.name || "—"]] : []), ["Sertifikat", files.certificateFile?.name || "—"]]}/>
           <Review title="Tanlangan dastur" rows={[["Universitet", `${university.ko} — ${university.uz}`], ["Kampus", form.campus], ["Yo‘nalish", form.program], ["Ta’lim tili", form.track], ["Qabul", `${form.admissionType}, ${form.semester}`]]}/>
         </div>
         <label className="consent"><input type="checkbox" checked={consent} onChange={(e) => setConsent(e.target.checked)}/><span>Kiritilgan ma’lumotlar to‘g‘ri ekanligini tasdiqlayman va shaxsiy ma’lumotlarim qayta ishlanishiga roziman.</span></label>
@@ -217,14 +307,14 @@ export default function ApplicationForm() {
       {error && <div className="error" role="alert">{error}</div>}
       <div className="actions">
         {step > 1 && <button className="secondary" onClick={() => {setStep(s => s - 1); setError("");}}><ArrowLeft size={18}/> Orqaga</button>}
-        {step < 4 ? <button className="primary" onClick={next}>Davom etish <ArrowRight size={18}/></button> : <button className="primary submit" disabled={busy || Object.values(processing).some(Boolean)} onClick={submit}>{busy ? "Yuborilmoqda..." : "Arizani yuborish"} <ArrowRight size={18}/></button>}
+        {step < LAST_STEP ? <button className="primary" onClick={next}>Davom etish <ArrowRight size={18}/></button> : <button className="primary submit" disabled={busy || Object.values(processing).some(Boolean)} onClick={submit}>{busy ? "Yuborilmoqda..." : "Arizani yuborish"} <ArrowRight size={18}/></button>}
       </div>
     </section>
     <footer>Arizangiz ko‘rib chiqilgandan so‘ng mas’ul mutaxassis siz bilan bog‘lanadi.</footer>
   </main>;
 }
 
-function Input({label,name,form,update,type="text",placeholder="",wide=false,disabled=false}:{label:string;name:string;form:Record<string,string>;update:(n:string,v:string)=>void;type?:string;placeholder?:string;wide?:boolean;disabled?:boolean}) {
+function Input({label,name,form,update,type="text",placeholder="",wide=false,disabled=false,auto}:{label:string;name:string;form:Record<string,string>;update:(n:string,v:string)=>void;type?:string;placeholder?:string;wide?:boolean;disabled?:boolean;auto?:Record<string,boolean>}) {
   function onChange(value: string) {
     if (name !== "phone") return update(name, value);
     let digits = value.replace(/\D/g, "");
@@ -233,16 +323,25 @@ function Input({label,name,form,update,type="text",placeholder="",wide=false,dis
     else if (digits.startsWith("10")) digits = digits.slice(2);
     update(name, `+8210${digits.slice(0, 8)}`);
   }
-  return <label className={wide ? "field wide" : "field"}><span>{label} <b>*</b></span><input type={type} inputMode={name === "phone" ? "numeric" : undefined} maxLength={name === "phone" ? 13 : 200} value={form[name] || ""} placeholder={placeholder} disabled={disabled} onChange={(e)=>onChange(e.target.value)}/></label>;
+  return <label className={`field${wide ? " wide" : ""}${auto?.[name] ? " auto" : ""}`}><span>{label} <b>*</b></span><input type={type} inputMode={name === "phone" ? "numeric" : undefined} maxLength={name === "phone" ? 13 : 200} value={form[name] || ""} placeholder={placeholder} disabled={disabled} onChange={(e)=>onChange(e.target.value)}/></label>;
 }
-function Select({label,value,onChange,options,placeholder,disabled=false}:{label:string;value?:string;onChange:(v:string)=>void;options:string[];placeholder?:string;disabled?:boolean}) {
-  return <label className="field"><span>{label} <b>*</b></span><select disabled={disabled} value={value || ""} onChange={(e)=>onChange(e.target.value)}><option value="" disabled>{placeholder || "Tanlang"}</option>{options.map(o=><option key={o}>{o}</option>)}</select></label>;
+function Select({label,value,onChange,options,placeholder,disabled=false,auto=false}:{label:string;value?:string;onChange:(v:string)=>void;options:string[];placeholder?:string;disabled?:boolean;auto?:boolean}) {
+  return <label className={auto ? "field auto" : "field"}><span>{label} <b>*</b></span><select disabled={disabled} value={value || ""} onChange={(e)=>onChange(e.target.value)}><option value="" disabled>{placeholder || "Tanlang"}</option>{options.map(o=><option key={o}>{o}</option>)}</select></label>;
 }
 function formatSize(bytes: number) {
   return bytes < 1024 * 1024 ? `${Math.max(1, Math.round(bytes / 1024))} KB` : `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
-function UploadField({label,name,file,busy,onPick}:{label:string;name:string;file?:File|null;busy:boolean;onPick:(name:string,file:File|null)=>void}) {
-  return <label className="upload"><Upload size={20}/><span>{file?.name || label}</span><small>{busy ? "Tayyorlanmoqda..." : file ? `Fayl tanlandi · ${formatSize(file.size)}` : "Fayl tanlash"}</small><input type="file" accept="application/pdf,image/*" disabled={busy} onChange={(e)=>onPick(name, e.target.files?.[0]||null)}/></label>;
+const ocrLabels: Record<OcrState, string> = {
+  reading: "Hujjat o‘qilmoqda…",
+  done: "Ma’lumotlar o‘qildi",
+  partial: "Qisman o‘qildi — keyingi sahifada tekshiring",
+  failed: "O‘qib bo‘lmadi — keyingi sahifada qo‘lda kiriting",
+};
+function UploadField({label,name,file,busy,ocr,required=false,onPick}:{label:string;name:string;file?:File|null;busy:boolean;ocr?:OcrState;required?:boolean;onPick:(name:string,file:File|null)=>void}) {
+  return <div className={`upload-box${file ? " has-file" : ""}`}>
+    <label className="upload"><Upload size={20}/><span>{label}{required && <b> *</b>}</span><small>{busy ? "Tayyorlanmoqda..." : file ? `${file.name} · ${formatSize(file.size)}` : "Fayl tanlash yoki suratga olish"}</small><input type="file" accept="application/pdf,image/*" disabled={busy} onChange={(e)=>{onPick(name, e.target.files?.[0]||null); e.target.value = "";}}/></label>
+    {ocr && <div className={`ocr-status ${ocr}`}>{ocr === "reading" ? <Loader2 size={15} className="spin"/> : ocr === "done" ? <Check size={15}/> : <AlertTriangle size={15}/>}{ocrLabels[ocr]}</div>}
+  </div>;
 }
 function Review({title,rows}:{title:string;rows:string[][]}) {
   return <div className="review-card"><h3>{title}</h3>{rows.map(([k,v])=><div key={k}><span>{k}</span><strong>{v || "—"}</strong></div>)}</div>;
