@@ -2,7 +2,7 @@
 // onnxruntime-web, see ./ppocr) and parses it. Everything runs on the student's device; the
 // engine files are served from /ocr (scripts/copy-ocr-assets.mjs), so no document image is
 // sent anywhere for recognition.
-import { linesToText, preloadPpOcr, readLines } from "./ppocr";
+import { linesToText, OCR_BASE, preloadPpOcr, readLines } from "./ppocr";
 import { parsePassport, parseResidenceCard, type PassportData, type ResidenceCardData } from "./parse";
 
 /** Raw OCR text of the last read per document kind, for the ?ocrdebug=1 view (never sent anywhere). */
@@ -16,7 +16,7 @@ export function preloadOcr() {
 async function pdfFirstPage(file: File): Promise<HTMLCanvasElement> {
   // Legacy build: includes polyfills, the default build needs very recent browsers.
   const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
-  pdfjs.GlobalWorkerOptions.workerSrc = "/ocr/pdf.worker.min.mjs";
+  pdfjs.GlobalWorkerOptions.workerSrc = `${OCR_BASE}/pdf.worker.min.mjs`;
   const task = pdfjs.getDocument({ data: new Uint8Array(await file.arrayBuffer()) });
   const doc = await task.promise;
   const page = await doc.getPage(1);

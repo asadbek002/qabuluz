@@ -180,7 +180,8 @@ function valueAfter(lines: string[], label: RegExp, skip: RegExp[] = []) {
   for (const candidate of lines.slice(i + 1, i + 3)) {
     // The next label right away means this value was not read: don't borrow the next field's value.
     if (anyLabel.test(candidate) || Object.values(labels).some((r) => r.test(candidate.replace(/\s+/g, "")))) return undefined;
-    const v = candidate.replace(/[^A-Z' -]/g, " ").replace(/\s+/g, " ").trim();
+    // Single letters are OCR noise (stray strokes, a misread separator): names never have them.
+    const v = candidate.replace(/[^A-Z' -]/g, " ").split(/\s+/).filter((t) => t.replace(/[^A-Z]/g, "").length >= 2).join(" ").trim();
     if (/^[A-Z][A-Z' -]{1,40}$/.test(v) && !/UZBEK|REGION|REPUBLIC/.test(v)) return v;
   }
   return undefined;

@@ -10,7 +10,12 @@ const nextConfig: NextConfig = {
       { key: "Cross-Origin-Embedder-Policy", value: "require-corp" },
     ];
     // vinext's "/:path*" does not match the root page, so "/" is listed separately.
-    return [{ source: "/", headers: isolation }, { source: "/:path*", headers: isolation }];
+    return [
+      { source: "/", headers: isolation },
+      { source: "/:path*", headers: isolation },
+      // The year-long cache for /ocr/<version>/ is set in Nginx (deploy/nginx.conf): the static
+      // file server here always adds its own one-hour Cache-Control.
+    ];
   },
   experimental: {
     serverActions: {

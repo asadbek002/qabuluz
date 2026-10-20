@@ -3,6 +3,10 @@
 // Models and the WASM runtime are served from /ocr (scripts/copy-ocr-assets.mjs); images never
 // leave the device. The document is already upright when it gets here, so boxes are axis-aligned.
 import type { InferenceSession, Tensor } from "onnxruntime-web";
+import { version as assetsVersion } from "./assets.json";
+
+/** Versioned folder of the OCR files (cached for a year, see next.config.ts). */
+export const OCR_BASE = `/ocr/${assetsVersion}`;
 
 type Ort = typeof import("onnxruntime-web");
 type Engine = { ort: Ort; det: InferenceSession; rec: InferenceSession; dict: string[] };
@@ -12,15 +16,15 @@ let enginePromise: Promise<Engine> | null = null;
 function loadEngine() {
   enginePromise ??= (async () => {
     const ort = (await import("onnxruntime-web/wasm")) as unknown as Ort;
-    ort.env.wasm.wasmPaths = "/ocr/ort/";
+    ort.env.wasm.wasmPaths = `${OCR_BASE}/ort/`;
     // Threads need a cross-origin isolated page (COOP/COEP headers, see next.config.ts);
     // otherwise run single-threaded, which works everywhere.
     ort.env.wasm.numThreads = globalThis.crossOriginIsolated ? Math.min(4, navigator.hardwareConcurrency || 2) : 1;
     const options: InferenceSession.SessionOptions = { executionProviders: ["wasm"], graphOptimizationLevel: "all" };
     const [det, rec, keys] = await Promise.all([
-      ort.InferenceSession.create("/ocr/ppocr/det.onnx", options),
-      ort.InferenceSession.create("/ocr/ppocr/rec.onnx", options),
-      fetch("/ocr/ppocr/keys.txt").then((r) => r.text()),
+      ort.InferenceSession.create(`${OCR_BASE}/ppocr/det.onnx`, options),
+      ort.InferenceSession.create(`${OCR_BASE}/ppocr/rec.onnx`, options),
+      fetch(`${OCR_BASE}/ppocr/keys.txt`).then((r) => r.text()),
     ]);
     // CTC classes: 0 = blank, then the dictionary, then the space character.
     const dict = ["", ...keys.split(/\r?\n/).filter((l, i, all) => l !== "" || i < all.length - 1), " "];

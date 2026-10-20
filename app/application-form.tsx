@@ -69,9 +69,10 @@ export default function ApplicationForm() {
     return () => cancelAnimationFrame(frame);
   }, [step]);
 
-  // Start downloading the OCR engine as soon as the documents step opens.
+  // Start downloading the OCR engine (~7 MB, cached afterwards) once a university is chosen,
+  // so it is ready by the time the documents step opens.
   useEffect(() => {
-    if (step === 3) import("@/lib/ocr/read-document").then((m) => m.preloadOcr()).catch(() => {});
+    if (step >= 2) import("@/lib/ocr/read-document").then((m) => m.preloadOcr()).catch(() => {});
   }, [step]);
 
   function update(name: string, value: string) {
