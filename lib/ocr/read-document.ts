@@ -192,8 +192,63 @@ function cropToInk(src: HTMLCanvasElement) {
   return out;
 }
 
-/** Turn the document upright: straighten the text lines, then pick 0° or 180° by OCR confidence. */
-async function upright(src: HTMLCanvasElement) {
+/**
+ * Crop to the document itself: the passport page / card is the largest light area, while a
+ * keyboard, desk or hand around it is darker. Keeps key labels etc. out of the OCR (and the
+ * line-angle estimate) and makes recognition faster. Returns the source if nothing clear stands out.
+ */
+function cropToDocument(src: HTMLCanvasElement) {
+  const small = prepare(src, { targetWidth: Math.min(240, src.width) });
+  const { width, height } = small;
+  const data = small.getContext("2d")!.getImageData(0, 0, width, height).data;
+  const histogram = new Array<number>(256).fill(0);
+  for (let i = 0; i < data.length; i += 4) histogram[data[i]]++;
+  const t = otsu(histogram, width * height);
+  const bright = new Uint8Array(width * height);
+  for (let p = 0; p < bright.length; p++) bright[p] = data[p * 4] > t ? 1 : 0;
+  // Largest 4-connected bright component.
+  const seen = new Uint8Array(bright.length);
+  let best = { area: 0, x0: 0, y0: 0, x1: 0, y1: 0 };
+  const stack: number[] = [];
+  for (let start = 0; start < bright.length; start++) {
+    if (!bright[start] || seen[start]) continue;
+    let area = 0, x0 = width, y0 = height, x1 = 0, y1 = 0;
+    stack.push(start);
+    seen[start] = 1;
+    while (stack.length) {
+      const p = stack.pop()!;
+      const x = p % width, y = (p - x) / width;
+      area++;
+      if (x < x0) x0 = x;
+      if (x > x1) x1 = x;
+      if (y < y0) y0 = y;
+      if (y > y1) y1 = y;
+      for (const q of [p - 1, p + 1, p - width, p + width]) {
+        if (q < 0 || q >= bright.length || seen[q] || !bright[q]) continue;
+        if ((q === p - 1 && x === 0) || (q === p + 1 && x === width - 1)) continue;
+        seen[q] = 1;
+        stack.push(q);
+      }
+    }
+    if (area > best.area) best = { area, x0, y0, x1, y1 };
+  }
+  const boxArea = (best.x1 - best.x0 + 1) * (best.y1 - best.y0 + 1);
+  // Only crop when a clear light region exists and it is not (almost) the whole photo.
+  if (best.area < width * height * 0.12 || boxArea > width * height * 0.92 || best.area < boxArea * 0.45) return src;
+  const scale = src.width / width;
+  const m = 0.03 * Math.max(width, height);
+  const x0 = Math.max(0, best.x0 - m), y0 = Math.max(0, best.y0 - m);
+  const x1 = Math.min(width, best.x1 + 1 + m), y1 = Math.min(height, best.y1 + 1 + m);
+  const out = document.createElement("canvas");
+  out.width = Math.round((x1 - x0) * scale);
+  out.height = Math.round((y1 - y0) * scale);
+  out.getContext("2d")!.drawImage(src, x0 * scale, y0 * scale, out.width, out.height, 0, 0, out.width, out.height);
+  return out;
+}
+
+/** Turn the document upright: crop to it, straighten the text lines, then pick 0/90/180/270° by the words read. */
+async function upright(photo: HTMLCanvasElement) {
+  const src = cropToDocument(photo);
   const angle = textLineAngle(src);
   const straight = cropToInk(angle ? rotate(src, angle) : src);
   // Upside-down text still yields "words" with some confidence, so judge by words that are
@@ -206,10 +261,15 @@ async function upright(src: HTMLCanvasElement) {
     // Upside-down lines get low recognition scores, so confidence breaks ties.
     return hits * 1000 + confidence;
   };
-  const upright0 = await probe(0);
-  // A clear keyword hit at 0° means the photo is already upright: skip the second pass.
-  const upright180 = upright0 >= 3000 ? 0 : await probe(180);
-  return upright180 > upright0 ? rotate(straight, 180) : straight;
+  // Check all four quarter turns: the line-angle estimate can be fooled by strong straight
+  // structures around the document (keyboard rows, tiles). Clear keyword hits stop early.
+  let best = { deg: 0, score: -1 };
+  for (const deg of [0, 180, 90, 270]) {
+    const score = await probe(deg);
+    if (score > best.score) best = { deg, score };
+    if (score >= 3000) break;
+  }
+  return best.deg ? cropToInk(rotate(straight, best.deg)) : straight;
 }
 
 async function ocrRaw(canvas: HTMLCanvasElement, limit = 1280, maxBoxes = Infinity) {

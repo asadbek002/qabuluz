@@ -269,7 +269,7 @@ export default function ApplicationForm() {
         </div>
         {residence && <>
           <h3 className="form-heading">Hujjatlar</h3>
-          <div className="info-box"><Camera size={19}/><span>Hujjatni tekis joyga qo‘yib, yorug‘da suratga oling. Passportning pastidagi 2 qator kod (<b>P&lt;UZB…</b>) to‘liq va aniq ko‘rinsin. PDF, JPG, PNG va boshqa rasm formatlari qabul qilinadi.</span></div>
+          <div className="info-box"><Camera size={19}/><span>Hujjatni bir rangli tekis yuzaga (stol, qog‘oz — klaviatura ustida emas) qo‘yib, yorug‘da suratga oling. Passportning pastidagi 2 qator kod (<b>P&lt;UZB…</b>) to‘liq va aniq ko‘rinsin. PDF, JPG, PNG va boshqa rasm formatlari qabul qilinadi.</span></div>
           <div className="upload-grid">
             <UploadField label="Xorijga chiqish pasporti" required name="passportFile" file={files.passportFile} busy={!!processing.passportFile} ocr={ocrStatus.passportFile} onPick={pickFile}/>
             {residence === "yes" && <UploadField label="Koreya ID karta — old tomoni" required name="arcFrontFile" file={files.arcFrontFile} busy={!!processing.arcFrontFile} ocr={ocrStatus.arcFrontFile} onPick={pickFile}/>}

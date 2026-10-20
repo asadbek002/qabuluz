@@ -291,26 +291,40 @@ export function parseResidenceCard(text: string): ResidenceCardData | null {
   if (visa) out.visaType = `${visa[1].replace(/[O0]/, "D")}-${digits(visa[2])}${visa[3] ? `-${digits(visa[3])}` : ""}`;
   if (out.arcNumber) Object.assign(out, birthFromArc(out.arcNumber));
   if (/UZBEK|UZBEKI?STAN/.test(upper)) out.citizenship = countryByCode.UZB;
-  // Latin name lines (surname, name and possibly patronymic), skipping the card's fixed labels.
-  // A long name can wrap onto the next line, sometimes with a hyphen ("RAKHIM-" / "JON UGLI").
-  const stop = /RESIDENCE|CARD|\bKOR\b|REPUBLIC|CHIEF|IMMIGRATION|OFFICE|SEOUL|STATUS|UZBEKISTAN|UTOPIA|NAME|\bSEX\b/;
+  // Latin name (surname, name and possibly patronymic). On the card it sits between the
+  // registration number and "Country / Region", can wrap over several lines — mid-word
+  // ("ASAD" / "BEK") or with a hyphen ("UG-" / "LI") — with the "Name" label in between.
   const rawLines = upper.split(/\n/).map((l) => l.trim()).filter(Boolean);
   const letterWords = (l: string) => l.replace(/[^A-Z\s-]/g, " ").split(/\s+/).map((t) => t.replace(/^-+|-+$/g, "")).filter((t) => t.length >= 2);
+  const labelOnly = /^(NAME|NAMES|REGISTRATION ?NO|REGISTRATION|NO|SEX|STATUS|ALIEN|KOR)$/;
+  const blockEnd = /COUNTRY|REGION|NATIONALITY|STATUS|ISSUE|SSUE|UZBEK|KAZAKH|KYRGYZ|TAJIK|TURKMEN|RUSSIA|UKRAIN|BELARUS|AZERBAIJAN|ARMENIA|MOLDOVA|\(\s*[A-HO0]\s*-|\d{4}\s*\.\s*\d{2}/;
+  const numberLine = rawLines.findIndex((l) => /\d{6}\s*[-–—~=]\s*\d{7}/.test(l));
   const names: string[] = [];
-  for (let i = 0; i < rawLines.length; i++) {
-    const words = letterWords(rawLines[i]);
-    const line = words.join(" ");
-    if (words.length < 2 || words.length > 6 || stop.test(line) || /\d/.test(rawLines[i].replace(/^[^A-Z]*/, "").slice(0, 3))) continue;
-    let joined = line;
-    const next = rawLines[i + 1] ? letterWords(rawLines[i + 1]) : [];
-    const nextLine = next.join(" ");
-    const hyphenated = /[-–—]\s*$/.test(rawLines[i]);
-    if (next.length && next.length <= 3 && !stop.test(nextLine) && !/\d/.test(rawLines[i + 1]) && (hyphenated || /UGLI|OGLI|QIZI|KIZI/.test(nextLine) || next.length === 1)) {
-      joined = hyphenated ? `${joined}${next[0]}${next.length > 1 ? " " + next.slice(1).join(" ") : ""}` : `${joined} ${nextLine}`;
-      i++;
+  if (numberLine >= 0) {
+    const fragments: { words: string[]; hyphen: boolean }[] = [];
+    for (const raw of rawLines.slice(numberLine + 1)) {
+      if (blockEnd.test(raw)) break;
+      const words = letterWords(raw).filter((w) => !labelOnly.test(w));
+      if (!words.length || labelOnly.test(letterWords(raw).join(" "))) continue;
+      fragments.push({ words, hyphen: /[-–—]\s*$/.test(raw) });
     }
-    // Drop any dashes left inside words ("RAKHIM-JON" -> "RAKHIMJON").
-    names.push(joined.replace(/-/g, "").replace(/\s+/g, " ").trim());
+    // Uzbek name endings that a line break separates from their first half.
+    const ending = /^(BEK|JON|BOY|XON|KHON|OY|GUL|NISO|ZODA|BONU|MUROD|ALI)$/;
+    let joined = "";
+    fragments.forEach((f, i) => {
+      if (i === 0) { joined = f.words.join(" "); return; }
+      const glue = fragments[i - 1].hyphen || ending.test(f.words[0]) ? "" : " ";
+      joined += glue + f.words.join(" ");
+    });
+    if (joined.split(" ").length >= 2) names.push(fixPatronymic(joined.replace(/\s+/g, " ").trim()));
+  }
+  if (!names.length) {
+    // No number line found: fall back to single name lines.
+    const stop = /RESIDENCE|CARD|\bKOR\b|REPUBLIC|CHIEF|IMMIGRATION|OFFICE|SEOUL|STATUS|UZBEKISTAN|UTOPIA|NAME|\bSEX\b|REGISTRATION|ISSUE|SSUE|DATE|COUNTRY|REGION/;
+    for (const raw of rawLines) {
+      const words = letterWords(raw);
+      if (words.length >= 2 && words.length <= 6 && !stop.test(words.join(" ")) && !/\d/.test(raw)) names.push(words.join(" "));
+    }
   }
   if (names.length) out.names = names;
   return Object.keys(out).length ? out : null;
@@ -373,25 +387,38 @@ export function similarity(a = "", b = "") {
  * Locate the card's clean name tokens inside a noisy MRZ name string ("SATTAROVCSELBEXCRAKMIMJONCUGLI")
  * and return what follows them (the patronymic), with filler letters removed.
  */
-function remainderAfter(noisy: string, tokens: string[]) {
+function remainderAfter(noisy: string, tokens: string[], mrzFillers = true) {
   let pos = 0;
   for (const token of tokens) {
-    let best = { score: 0, end: -1 };
+    let best = { score: 0, end: -1, off: Infinity };
     for (let start = pos; start <= pos + 3 && start < noisy.length; start++) {
       for (const len of [token.length - 1, token.length, token.length + 1]) {
         const score = similarity(noisy.slice(start, start + len), token);
-        if (score >= best.score && score > 0) best = { score, end: start + len };
+        // Equal scores: prefer the length closest to the token, then the earliest start.
+        const off = Math.abs(len - token.length) * 10 + (start - pos);
+        if (score > 0 && (score > best.score || (score === best.score && off < best.off))) best = { score, end: start + len, off };
       }
     }
     if (best.score < 0.7) return null;
     pos = best.end;
   }
-  const rest = noisy.slice(pos).replace(/^[<CKSLE]{1,2}/, "").replace(/[<]+/g, " ").trim();
+  // In a noisy MRZ the '<' separators come out as C/K/S/L/E; clean card text keeps its letters.
+  const rest = (mrzFillers ? noisy.slice(pos).replace(/^[<CKSLE]{1,2}/, "") : noisy.slice(pos)).replace(/[<]+/g, " ").trim();
   const m = /^([A-Z]{2,})(UGLI|OGLI|QIZI|KIZI)$/.exec(rest.replace(/\s/g, ""));
   if (!m) return rest || null;
   // "RAKHIMJONCUGLI": a C/K right after a consonant is the '<' separator; "OTABEKUGLI" keeps its K.
   const father = /[^AEIOU][CK]$/.test(m[1]) ? m[1].slice(0, -1) : m[1];
   return `${father} ${m[2]}`;
+}
+
+/** Length of the prefix of `text` that best matches `token` (±1 letter). */
+function alignedLength(text: string, token: string) {
+  let best = token.length, score = -1;
+  for (const len of [token.length - 1, token.length, token.length + 1]) {
+    const v = similarity(text.slice(0, len), token);
+    if (v > score) { score = v; best = len; }
+  }
+  return best;
 }
 
 /** Pick the card's name line that best matches the passport (or the first one). */
@@ -400,9 +427,20 @@ function arcName(arc: ResidenceCardData | null, passport: PassportData | null) {
   if (!lines.length) return null;
   const ref = [passport?.lastName, passport?.firstName].filter(Boolean).join(" ");
   const best = ref ? [...lines].sort((a, b) => similarity(b, ref) - similarity(a, ref))[0] : lines[0];
-  const tokens = best.split(" ");
   // A name line that has nothing in common with a readable passport name is OCR noise.
   if (ref && passport?.namesClean && similarity(best, ref) < 0.4) return null;
+  let tokens = best.split(" ");
+  // Word breaks on the card can be wrong (a wrapped line, a lost space): when the passport
+  // names are readable, split the card's letters the same way.
+  if (passport?.lastName && passport.firstName) {
+    const letters = best.replace(/\s/g, "");
+    const rest = remainderAfter(letters, [passport.lastName.replace(/\s/g, ""), passport.firstName], false);
+    if (rest !== null) {
+      const head = letters.slice(0, letters.length - rest.replace(/\s/g, "").length);
+      const lastLen = alignedLength(head, passport.lastName.replace(/\s/g, ""));
+      tokens = [head.slice(0, lastLen), head.slice(lastLen), ...(rest ? rest.split(" ") : [])].filter(Boolean);
+    }
+  }
   return { lastName: tokens[0], firstName: tokens[1], middleName: tokens.length > 2 ? fixPatronymic(tokens.slice(2).join(" ")) : undefined };
 }
 
