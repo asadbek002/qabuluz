@@ -62,16 +62,20 @@ type Check = { label: string; submitted: string; read?: string; status: "same" |
 
 /** Compare what the student submitted with what OCR read from the uploaded documents. */
 function ocrChecks(a: Application): Check[] {
-  let ocr: { passport?: Record<string, string>; arc?: Record<string, string> } = {};
+  let ocr: { passport?: Record<string, string>; arc?: Record<string, string>; merged?: Record<string, string>; sources?: Record<string, string> } = {};
   try { ocr = JSON.parse(a.ocrData || "{}"); } catch {}
   const norm = (v?: string | null) => (v || "").toUpperCase().replace(/\s+/g, " ").trim();
-  const row = (label: string, submitted: string | null, read?: string): Check =>
-    ({ label, submitted: submitted || "", read, status: !read ? "missing" : norm(read) === norm(submitted) ? "same" : "diff" });
+  const sourceLabel: Record<string, string> = { passport: "pasport", arc: "ID karta", both: "pasport + ID karta" };
+  const row = (label: string, submitted: string | null, read?: string, source?: string): Check =>
+    ({ label: source ? `${label} (${sourceLabel[source] ?? source})` : label, submitted: submitted || "", read, status: !read ? "missing" : norm(read) === norm(submitted) ? "same" : "diff" });
   const out: Check[] = [];
-  if (ocr.passport) for (const [key, label] of passportLabels) out.push(row(label, a[key as keyof Application] as string, ocr.passport[key]));
-  if (ocr.arc) {
-    out.push(row("ID karta raqami", a.arcNumber, ocr.arc.arcNumber));
-    out.push(row("Viza", a.visaType, ocr.arc.visaType));
+  // Newer applications store the passport + ID card values combined; older ones only the passport.
+  const read = ocr.merged ?? ocr.passport;
+  if (read) for (const [key, label] of passportLabels) out.push(row(label, a[key as keyof Application] as string, read[key], ocr.sources?.[key]));
+  const arc = ocr.merged ?? ocr.arc;
+  if (ocr.arc || ocr.merged?.arcNumber) {
+    out.push(row("ID karta raqami", a.arcNumber, arc?.arcNumber, ocr.sources?.arcNumber));
+    out.push(row("Viza", a.visaType, arc?.visaType, ocr.sources?.visaType));
   }
   if (a.arcNumber && /^\d{6}-\d{7}$/.test(a.arcNumber) && !arcMatchesBirthDate(a.arcNumber, a.birthDate)) {
     out.push({ label: "ID raqam ↔ tug‘ilgan sana", submitted: a.birthDate, read: a.arcNumber.slice(0, 6), status: "diff" });

@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, ArrowLeft, ArrowRight, Camera, Check, FileText, GraduationCap, Loader2, MapPin, ScanText, ShieldCheck, Upload } from "lucide-react";
 import { compressImage } from "@/lib/compress-image";
-import type { PassportData, ResidenceCardData } from "@/lib/ocr/parse";
+import { reconcile, type MergedField, type PassportData, type ResidenceCardData } from "@/lib/ocr/parse";
 import { baseAdmissionTypes, certificateLevels, cisCountries, genders, languageTypes, mastersProgram, nonResident, semesters, universities, visaCodes } from "@/lib/universities";
 
 const fieldLabels: Record<string, string> = {
@@ -30,7 +30,7 @@ const requiredByStep: Record<number, string[]> = {
 };
 
 type OcrState = "reading" | "done" | "partial" | "failed";
-const passportFields = ["lastName", "firstName", "middleName", "passportNumber", "birthDate", "gender", "citizenship"] as const;
+const sourceLabels = { passport: "Pasportda", arc: "ID kartada" } as const;
 
 const MAX_FILE_BYTES = 20 * 1024 * 1024;
 
@@ -44,6 +44,11 @@ export default function ApplicationForm() {
   const [ocrStatus, setOcrStatus] = useState<Record<string, OcrState>>({});
   const [ocr, setOcr] = useState<{ passport?: PassportData; arc?: ResidenceCardData }>({});
   const [autoFilled, setAutoFilled] = useState<Record<string, boolean>>({});
+  // Fields the student typed in themselves; document values never overwrite them.
+  const edited = useRef<Record<string, boolean>>({});
+  const latestOcr = useRef<typeof ocr>({});
+  // Passport + residence card combined: the card fills or corrects what a poor passport photo missed.
+  const merged = useMemo(() => reconcile(ocr.passport ?? null, residence === "yes" ? ocr.arc ?? null : null), [ocr, residence]);
   const [consent, setConsent] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -72,13 +77,19 @@ export default function ApplicationForm() {
   function update(name: string, value: string) {
     setForm((old) => ({ ...old, [name]: value }));
     setAutoFilled((old) => (old[name] ? { ...old, [name]: false } : old));
+    edited.current[name] = true;
     setError("");
   }
 
-  function applyOcr(values: Record<string, string | undefined>) {
-    const filled = Object.fromEntries(Object.entries(values).filter(([, v]) => v)) as Record<string, string>;
-    setForm((old) => ({ ...old, ...filled }));
-    setAutoFilled((old) => ({ ...old, ...Object.fromEntries(Object.keys(filled).map((k) => [k, true])) }));
+  /** Store a document result and fill every field the student has not typed in themselves. */
+  function applyDocuments(next: typeof ocr, livesInKorea = residence === "yes") {
+    latestOcr.current = next;
+    setOcr(next);
+    const combined = reconcile(next.passport ?? null, livesInKorea ? next.arc ?? null : null);
+    const values = Object.fromEntries(Object.entries(combined.values).filter(([k]) => !edited.current[k])) as Record<string, string>;
+    if (!Object.keys(values).length) return;
+    setForm((old) => ({ ...old, ...values }));
+    setAutoFilled((old) => ({ ...old, ...Object.fromEntries(Object.keys(values).map((k) => [k, true])) }));
   }
 
   async function readDocument(name: string, file: File) {
@@ -88,15 +99,13 @@ export default function ApplicationForm() {
       const { readPassport, readResidenceCard } = await import("@/lib/ocr/read-document");
       if (name === "passportFile") {
         const { data } = await readPassport(file);
-        setOcr((old) => ({ ...old, passport: data ?? undefined }));
-        if (data) applyOcr(Object.fromEntries(passportFields.map((k) => [k, data[k]])));
-        const found = data ? passportFields.filter((k) => data[k]).length : 0;
-        setOcrStatus((old) => ({ ...old, [name]: !data || found === 0 ? "failed" : data.verified && found >= 6 ? "done" : "partial" }));
+        applyDocuments({ ...latestOcr.current, passport: data ?? undefined });
+        const found = data ? (["lastName", "firstName", "passportNumber", "birthDate"] as const).filter((k) => data[k]).length : 0;
+        setOcrStatus((old) => ({ ...old, [name]: !data || found === 0 ? "failed" : data.verified && data.namesClean ? "done" : "partial" }));
       } else {
         const data = await readResidenceCard(file);
-        setOcr((old) => ({ ...old, arc: data ?? undefined }));
-        if (data) applyOcr({ arcNumber: data.arcNumber, visaType: data.visaType });
-        setOcrStatus((old) => ({ ...old, [name]: !data ? "failed" : data.arcNumber && data.visaType ? "done" : "partial" }));
+        applyDocuments({ ...latestOcr.current, arc: data ?? undefined });
+        setOcrStatus((old) => ({ ...old, [name]: !data ? "failed" : data.arcNumber && data.visaType && data.names ? "done" : "partial" }));
       }
     } catch (e) {
       console.error(e);
@@ -110,10 +119,11 @@ export default function ApplicationForm() {
     if (value === "no") {
       setForm((old) => ({ ...old, visaType: nonResident, arcNumber: "" }));
       setFiles((old) => ({ ...old, arcFrontFile: null, arcBackFile: null }));
-      setOcr((old) => ({ ...old, arc: undefined }));
+      applyDocuments({ ...latestOcr.current, arc: undefined }, false);
       setOcrStatus((old) => Object.fromEntries(Object.entries(old).filter(([k]) => k !== "arcFrontFile")));
-    } else if (form.visaType === nonResident) {
-      setForm((old) => ({ ...old, visaType: "" }));
+    } else {
+      if (form.visaType === nonResident) setForm((old) => ({ ...old, visaType: "" }));
+      if (latestOcr.current.arc) applyDocuments(latestOcr.current, true);
     }
   }
 
@@ -121,6 +131,8 @@ export default function ApplicationForm() {
     setError("");
     if (!file) return setFiles((old) => ({ ...old, [name]: null }));
     // OCR reads the original file (best quality) while the upload copy is being shrunk.
+    // A new document may refill fields the student had typed before it.
+    if (name === "passportFile" || name === "arcFrontFile") edited.current = {};
     void readDocument(name, file);
     setProcessing((old) => ({ ...old, [name]: true }));
     try {
@@ -168,7 +180,7 @@ export default function ApplicationForm() {
       const data = new FormData();
       Object.entries(form).forEach(([key, value]) => data.append(key, value));
       data.append("universityId", selectedId);
-      data.append("ocr", JSON.stringify(ocr));
+      data.append("ocr", JSON.stringify({ ...ocr, merged: merged.values, sources: merged.sources }));
       Object.entries(files).forEach(([key, file]) => file && data.append(key, file));
       const response = await fetch("/api/applications", { method: "POST", body: data });
       const result = await response.json().catch(() => ({})) as { ok?: boolean; applicationNo?: string; error?: string };
@@ -179,6 +191,10 @@ export default function ApplicationForm() {
       setError(e instanceof Error ? e.message : "Xatolik yuz berdi.");
     } finally { setBusy(false); }
   }
+
+  // Per-field highlight: green = read from documents, yellow = read but please double-check.
+  const fieldState: Record<string, "auto" | "check"> = Object.fromEntries(Object.entries(autoFilled).filter(([, v]) => v)
+    .map(([k]) => [k, merged.uncertain.includes(k as MergedField) || merged.conflicts[k as MergedField] ? "check" : "auto"]));
 
   if (applicationNo) {
     return <main className="success-wrap"><section className="success-card">
@@ -262,20 +278,21 @@ export default function ApplicationForm() {
 
       {step === 4 && <>
         <div className="section-title"><p>4-qadam</p><h2>Talaba ma’lumotlari</h2><span>Ma’lumotlarni tekshiring va qolganlarini to‘ldiring.</span></div>
-        {Object.values(autoFilled).some(Boolean) && <div className="notice ok"><ScanText size={19}/><span>Yashil maydonlar hujjatdan avtomatik to‘ldirildi. Iltimos, hujjat bilan solishtirib tekshirib chiqing.</span></div>}
-        {(ocrStatus.passportFile === "failed" || ocrStatus.passportFile === "partial") && <div className="notice warn"><AlertTriangle size={19}/><span>Passportni to‘liq o‘qib bo‘lmadi. Bo‘sh maydonlarni pasportdagidek qo‘lda to‘ldiring.</span></div>}
+        {Object.values(autoFilled).some(Boolean) && <div className="notice ok"><ScanText size={19}/><span>Yashil maydonlar hujjatdan avtomatik to‘ldirildi{Object.values(fieldState).includes("check") ? ", sariqlarini albatta tekshiring" : ""}. Iltimos, hujjat bilan solishtirib chiqing.</span></div>}
+        {(ocrStatus.passportFile === "failed" || ocrStatus.passportFile === "partial") && <div className="notice warn"><AlertTriangle size={19}/><span>{residence === "yes" && ocr.arc ? "Passport rasmi sifati past — ma’lumotlar ID karta bilan solishtirib to‘ldirildi." : "Passportni to‘liq o‘qib bo‘lmadi."} Sariq va bo‘sh maydonlarni pasportdagidek tekshirib, to‘ldiring.</span></div>}
+        {Object.entries(merged.conflicts).map(([k, c]) => <div className="notice conflict" key={k}><AlertTriangle size={19}/><div><span>“{fieldLabels[k]}” pasport va ID kartada farq qiladi. To‘g‘risini tanlang:</span><div className="conflict-options">{(["passport", "arc"] as const).map((src) => <button type="button" key={src} className={form[k] === c![src] ? "selected" : ""} onClick={() => update(k, c![src])}>{sourceLabels[src]}: <b>{c![src]}</b></button>)}</div></div></div>)}
         <h3 className="form-heading">Shaxsiy ma’lumotlar</h3>
         <div className="form-grid">
-          <Input label="Familiya (pasportdagidek, lotincha)" name="lastName" placeholder="ALIYEV" form={form} update={update} auto={autoFilled}/>
-          <Input label="Ism (pasportdagidek, lotincha)" name="firstName" placeholder="VALI" form={form} update={update} auto={autoFilled}/>
-          <Input label="Otchestvo" name="middleName" placeholder="GANI UGLI" form={form} update={update} auto={autoFilled}/>
-          <Input label="Tug‘ilgan sana" name="birthDate" type="date" form={form} update={update} auto={autoFilled}/>
-          <Select label="Jinsi" value={form.gender} onChange={(v) => update("gender", v)} options={genders} placeholder="Tanlang" auto={autoFilled.gender}/>
-          <Select label="Fuqaroligi" value={form.citizenship} onChange={(v) => update("citizenship", v)} options={cisCountries} placeholder="Davlatni tanlang" auto={autoFilled.citizenship}/>
-          <Input label="Xorijga chiqish pasporti raqami" name="passportNumber" placeholder="FA1234567" form={form} update={update} auto={autoFilled}/>
+          <Input label="Familiya (pasportdagidek, lotincha)" name="lastName" placeholder="ALIYEV" form={form} update={update} auto={fieldState}/>
+          <Input label="Ism (pasportdagidek, lotincha)" name="firstName" placeholder="VALI" form={form} update={update} auto={fieldState}/>
+          <Input label="Otchestvo" name="middleName" placeholder="GANI UGLI" form={form} update={update} auto={fieldState}/>
+          <Input label="Tug‘ilgan sana" name="birthDate" type="date" form={form} update={update} auto={fieldState}/>
+          <Select label="Jinsi" value={form.gender} onChange={(v) => update("gender", v)} options={genders} placeholder="Tanlang" auto={fieldState.gender}/>
+          <Select label="Fuqaroligi" value={form.citizenship} onChange={(v) => update("citizenship", v)} options={cisCountries} placeholder="Davlatni tanlang" auto={fieldState.citizenship}/>
+          <Input label="Xorijga chiqish pasporti raqami" name="passportNumber" placeholder="FA1234567" form={form} update={update} auto={fieldState}/>
           {residence === "yes" && <>
-            <Input label="Koreya ID karta raqami" name="arcNumber" placeholder="000000-0000000" form={form} update={update} auto={autoFilled}/>
-            <Select label="Viza turi" value={form.visaType} onChange={(v) => update("visaType", v)} options={[...new Set([...visaCodes, ...(form.visaType && form.visaType !== nonResident ? [form.visaType] : []), "Boshqa"])]} placeholder="Tanlang" auto={autoFilled.visaType}/>
+            <Input label="Koreya ID karta raqami" name="arcNumber" placeholder="000000-0000000" form={form} update={update} auto={fieldState}/>
+            <Select label="Viza turi" value={form.visaType} onChange={(v) => update("visaType", v)} options={[...new Set([...visaCodes, ...(form.visaType && form.visaType !== nonResident ? [form.visaType] : []), "Boshqa"])]} placeholder="Tanlang" auto={fieldState.visaType}/>
           </>}
         </div>
         <h3 className="form-heading">Aloqa ma’lumotlari</h3>
@@ -314,7 +331,7 @@ export default function ApplicationForm() {
   </main>;
 }
 
-function Input({label,name,form,update,type="text",placeholder="",wide=false,disabled=false,auto}:{label:string;name:string;form:Record<string,string>;update:(n:string,v:string)=>void;type?:string;placeholder?:string;wide?:boolean;disabled?:boolean;auto?:Record<string,boolean>}) {
+function Input({label,name,form,update,type="text",placeholder="",wide=false,disabled=false,auto}:{label:string;name:string;form:Record<string,string>;update:(n:string,v:string)=>void;type?:string;placeholder?:string;wide?:boolean;disabled?:boolean;auto?:Record<string,"auto"|"check">}) {
   function onChange(value: string) {
     if (name !== "phone") return update(name, value);
     let digits = value.replace(/\D/g, "");
@@ -323,10 +340,10 @@ function Input({label,name,form,update,type="text",placeholder="",wide=false,dis
     else if (digits.startsWith("10")) digits = digits.slice(2);
     update(name, `+8210${digits.slice(0, 8)}`);
   }
-  return <label className={`field${wide ? " wide" : ""}${auto?.[name] ? " auto" : ""}`}><span>{label} <b>*</b></span><input type={type} inputMode={name === "phone" ? "numeric" : undefined} maxLength={name === "phone" ? 13 : 200} value={form[name] || ""} placeholder={placeholder} disabled={disabled} onChange={(e)=>onChange(e.target.value)}/></label>;
+  return <label className={`field${wide ? " wide" : ""}${auto?.[name] ? ` ${auto[name]}` : ""}`}><span>{label} <b>*</b></span><input type={type} inputMode={name === "phone" ? "numeric" : undefined} maxLength={name === "phone" ? 13 : 200} value={form[name] || ""} placeholder={placeholder} disabled={disabled} onChange={(e)=>onChange(e.target.value)}/></label>;
 }
-function Select({label,value,onChange,options,placeholder,disabled=false,auto=false}:{label:string;value?:string;onChange:(v:string)=>void;options:string[];placeholder?:string;disabled?:boolean;auto?:boolean}) {
-  return <label className={auto ? "field auto" : "field"}><span>{label} <b>*</b></span><select disabled={disabled} value={value || ""} onChange={(e)=>onChange(e.target.value)}><option value="" disabled>{placeholder || "Tanlang"}</option>{options.map(o=><option key={o}>{o}</option>)}</select></label>;
+function Select({label,value,onChange,options,placeholder,disabled=false,auto}:{label:string;value?:string;onChange:(v:string)=>void;options:string[];placeholder?:string;disabled?:boolean;auto?:"auto"|"check"}) {
+  return <label className={auto ? `field ${auto}` : "field"}><span>{label} <b>*</b></span><select disabled={disabled} value={value || ""} onChange={(e)=>onChange(e.target.value)}><option value="" disabled>{placeholder || "Tanlang"}</option>{options.map(o=><option key={o}>{o}</option>)}</select></label>;
 }
 function formatSize(bytes: number) {
   return bytes < 1024 * 1024 ? `${Math.max(1, Math.round(bytes / 1024))} KB` : `${(bytes / 1024 / 1024).toFixed(1)} MB`;

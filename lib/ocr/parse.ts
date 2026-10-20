@@ -11,17 +11,36 @@ export type PassportData = {
   citizenship?: string;
   /** true when the MRZ check digits for number + birth date passed */
   verified: boolean;
+  numberOk?: boolean;
+  birthDateOk?: boolean;
+  /** MRZ names were split cleanly (separators found, no filler noise) */
+  namesClean?: boolean;
+  /** MRZ check digit of the passport number, used to verify the printed number */
+  numberCheck?: string;
 };
 
 export type ResidenceCardData = {
+  citizenship?: string;
   arcNumber?: string; // 123456-1234567
   visaType?: string; // D-8
+  /** Latin name printed on the card ("SATTAROV ELBEK"), candidates in reading order */
+  names?: string[];
+  /** Derived from the ARC number: YYMMDD + century/sex digit */
+  birthDate?: string;
+  gender?: "Erkak" | "Ayol";
 };
 
 const countryByCode: Record<string, string> = {
   UZB: "O‘zbekiston", KAZ: "Qozog‘iston", KGZ: "Qirg‘iziston", TJK: "Tojikiston", TKM: "Turkmaniston",
   AZE: "Ozarbayjon", ARM: "Armaniston", BLR: "Belarus", MDA: "Moldova", RUS: "Rossiya", UKR: "Ukraina",
 };
+
+/** Country code with OCR tolerance: only Uzbek passports are supported, so "UIB"/"U2B" count as UZB. */
+function country(code: string) {
+  if (countryByCode[code]) return countryByCode[code];
+  const hits = [...code].filter((c, i) => "UZB"[i] === c || (i === 1 && /[2Z7]/.test(c))).length;
+  return hits >= 2 ? countryByCode.UZB : undefined;
+}
 
 const toDigit: Record<string, string> = { O: "0", Q: "0", D: "0", U: "0", I: "1", L: "1", T: "7", Z: "2", S: "5", B: "8", G: "6", A: "4" };
 const toLetter: Record<string, string> = { "0": "O", "1": "I", "2": "Z", "5": "S", "8": "B", "6": "G", "4": "A" };
@@ -78,13 +97,21 @@ export function parseMrz(text: string): PassportData | null {
   const line2 = (lines[l1Index + 1] ?? "").replace(/[^A-Z0-9<]/g, "");
 
   // Line 1: P<UZBSURNAME<<GIVEN<NAMES<<<<
-  const names = letters(line1.slice(5)).replace(/[KC<]{3,}$/, "").replace(/<+$/, "");
+  let names = letters(line1.slice(5)).replace(/[KC<]{3,}$/, "").replace(/<+$/, "");
+  // Uzbek patronymics end in UGLI / QIZI; anything after is filler read as letters.
+  const suffix = /(UGLI|OGLI|QIZI|KIZI)/.exec(names);
+  if (suffix) names = names.slice(0, suffix.index + suffix[0].length);
   const [surnamePart, givenPart = ""] = names.split(/<</);
   const given = givenPart.split("<").filter(Boolean);
+  const lastName = surnamePart.replace(/</g, " ").trim();
   const result: PassportData = {
-    lastName: surnamePart.replace(/</g, " ").trim() || undefined,
+    lastName: lastName || undefined,
     ...splitGivenNames(given),
     verified: false,
+    namesClean: names.includes("<<") && /^[A-Z]{3,20}$/.test(lastName) && given.length > 0
+      && given.every((t, i) => /^[A-Z]{2,15}$/.test(t) && (i === given.length - 1 || !/UGLI|OGLI|QIZI|KIZI/.test(t)))
+      // the patronymic suffix must be its own word, not glued to a name by a misread '<'
+      && (!suffix || /^(UGLI|OGLI|QIZI|KIZI)$/.test(given.at(-1) ?? "")),
   };
   const issuing = letters(line1.slice(2, 5));
 
@@ -95,15 +122,18 @@ export function parseMrz(text: string): PassportData | null {
     const dob = digits(line2.slice(13, 19));
     const dobCheck = digits(line2[19]);
     const sex = line2[20];
-    const numberOk = checkDigit(number.padEnd(9, "<")) === numberCheck;
+    const numberOk = /^[A-Z]{2}\d{7}$/.test(number) && checkDigit(number) === numberCheck;
     const dobOk = checkDigit(dob) === dobCheck;
     result.passportNumber = number || undefined;
+    result.numberCheck = numberCheck;
+    result.numberOk = numberOk;
+    result.birthDateOk = dobOk && !!mrzDate(dob, true);
     result.birthDate = mrzDate(dob, true);
     result.gender = sex === "M" ? "Erkak" : sex === "F" ? "Ayol" : undefined;
-    result.citizenship = countryByCode[nationality] ?? countryByCode[issuing];
+    result.citizenship = country(nationality) ?? country(issuing);
     result.verified = numberOk && dobOk;
   } else {
-    result.citizenship = countryByCode[issuing];
+    result.citizenship = country(issuing);
   }
   return result;
 }
@@ -145,6 +175,18 @@ export function parsePassport(text: string): PassportData | null {
   const visual = parsePassportVisual(text);
   if (!mrz && !Object.keys(visual).length) return null;
   const base: PassportData = { ...visual, ...Object.fromEntries(Object.entries(mrz ?? {}).filter(([, v]) => v !== undefined)), verified: mrz?.verified ?? false };
+  // The printed number is larger than the MRZ; accept it when it satisfies the MRZ check digit.
+  if (mrz && !mrz.numberOk && visual.passportNumber && mrz.numberCheck && checkDigit(visual.passportNumber) === mrz.numberCheck) {
+    base.passportNumber = visual.passportNumber;
+    base.numberOk = true;
+    base.verified = !!mrz.birthDateOk;
+  }
+  // Noisy MRZ names (fillers read as letters): trust the printed labelled names instead.
+  if (mrz && !mrz.namesClean && (visual.lastName || visual.firstName)) {
+    base.lastName = visual.lastName ?? base.lastName;
+    base.firstName = visual.firstName ?? base.firstName;
+    base.middleName = visual.middleName ?? base.middleName;
+  }
   // The MRZ truncates long names and can confuse '<' fillers with K; prefer the printed
   // name when it agrees with the MRZ letters.
   const mrzLetters = (mrz?.lastName ?? "") + (mrz?.firstName ?? "") + (mrz?.middleName ?? "");
@@ -171,10 +213,179 @@ export function parseResidenceCard(text: string): ResidenceCardData | null {
   const withoutNumber = upper.replace(/[0-9A-Z]{5,8}\s*[-–—~=]\s*[0-9A-Z]{7}/g, " ");
   const visa = visaPattern.exec(withoutNumber) ?? /\b([A-H])\s*[-–]\s*(\d{1,2})\b/.exec(withoutNumber);
   if (visa) out.visaType = `${visa[1].replace(/[O0]/, "D")}-${digits(visa[2])}${visa[3] ? `-${digits(visa[3])}` : ""}`;
+  if (out.arcNumber) Object.assign(out, birthFromArc(out.arcNumber));
+  if (/UZBEK|UZBEKI?STAN/.test(upper)) out.citizenship = countryByCode.UZB;
+  // Latin name lines (surname, name and possibly patronymic), skipping the card's fixed labels.
+  // A long name can wrap onto the next line, sometimes with a hyphen ("RAKHIM-" / "JON UGLI").
+  const stop = /RESIDENCE|CARD|\bKOR\b|REPUBLIC|CHIEF|IMMIGRATION|OFFICE|SEOUL|STATUS|UZBEKISTAN|UTOPIA|NAME|\bSEX\b/;
+  const rawLines = upper.split(/\n/).map((l) => l.trim()).filter(Boolean);
+  const letterWords = (l: string) => l.replace(/[^A-Z\s-]/g, " ").split(/\s+/).map((t) => t.replace(/^-+|-+$/g, "")).filter((t) => t.length >= 2);
+  const names: string[] = [];
+  for (let i = 0; i < rawLines.length; i++) {
+    const words = letterWords(rawLines[i]);
+    const line = words.join(" ");
+    if (words.length < 2 || words.length > 6 || stop.test(line) || /\d/.test(rawLines[i].replace(/^[^A-Z]*/, "").slice(0, 3))) continue;
+    let joined = line;
+    const next = rawLines[i + 1] ? letterWords(rawLines[i + 1]) : [];
+    const nextLine = next.join(" ");
+    const hyphenated = /[-–—]\s*$/.test(rawLines[i]);
+    if (next.length && next.length <= 3 && !stop.test(nextLine) && !/\d/.test(rawLines[i + 1]) && (hyphenated || /UGLI|OGLI|QIZI|KIZI/.test(nextLine) || next.length === 1)) {
+      joined = hyphenated ? `${joined}${next[0]}${next.length > 1 ? " " + next.slice(1).join(" ") : ""}` : `${joined} ${nextLine}`;
+      i++;
+    }
+    // Drop any dashes left inside words ("RAKHIM-JON" -> "RAKHIMJON").
+    names.push(joined.replace(/-/g, "").replace(/\s+/g, " ").trim());
+  }
+  if (names.length) out.names = names;
   return Object.keys(out).length ? out : null;
+}
+
+/** ARC number YYMMDD-SXXXXXX: S gives the century (1,2,5,6 → 1900s; 3,4,7,8 → 2000s) and sex (odd = male). */
+export function birthFromArc(arcNumber: string): Pick<ResidenceCardData, "birthDate" | "gender"> {
+  const m = /^(\d{2})(\d{2})(\d{2})-(\d)/.exec(arcNumber);
+  if (!m) return {};
+  const s = Number(m[4]);
+  const century = [1, 2, 5, 6].includes(s) ? 1900 : [3, 4, 7, 8].includes(s) ? 2000 : 0;
+  if (!century) return {};
+  const iso = `${century + Number(m[1])}-${m[2]}-${m[3]}`;
+  const d = new Date(`${iso}T00:00:00Z`);
+  if (Number.isNaN(d.getTime()) || d.toISOString().slice(0, 10) !== iso) return {};
+  return { birthDate: iso, gender: s % 2 === 1 ? "Erkak" : "Ayol" };
 }
 
 /** First 6 digits of an ARC number are the holder's birth date (YYMMDD). */
 export function arcMatchesBirthDate(arcNumber: string, birthDate: string) {
   return arcNumber.slice(0, 6) === birthDate.replaceAll("-", "").slice(2);
+}
+
+// -----------------------------------------------------------------------------------------
+// Cross-checking the passport with the residence card
+// -----------------------------------------------------------------------------------------
+
+export type MergedField = "lastName" | "firstName" | "middleName" | "passportNumber" | "birthDate" | "gender" | "citizenship" | "arcNumber" | "visaType";
+export type Source = "passport" | "arc" | "both";
+export type Merged = {
+  values: Partial<Record<MergedField, string>>;
+  sources: Partial<Record<MergedField, Source>>;
+  /** Both documents were read but disagree; the student must pick */
+  conflicts: Partial<Record<MergedField, { passport: string; arc: string }>>;
+  /** Read from one document only and not confirmed by a check digit: ask the student to check */
+  uncertain: MergedField[];
+};
+
+function levenshtein(a: string, b: string) {
+  const dp = Array.from({ length: b.length + 1 }, (_, j) => j);
+  for (let i = 1; i <= a.length; i++) {
+    let prev = dp[0];
+    dp[0] = i;
+    for (let j = 1; j <= b.length; j++) {
+      const tmp = dp[j];
+      dp[j] = Math.min(dp[j] + 1, dp[j - 1] + 1, prev + (a[i - 1] === b[j - 1] ? 0 : 1));
+      prev = tmp;
+    }
+  }
+  return dp[b.length];
+}
+
+export function similarity(a = "", b = "") {
+  const x = a.toUpperCase().replace(/[^A-Z]/g, ""), y = b.toUpperCase().replace(/[^A-Z]/g, "");
+  if (!x || !y) return 0;
+  return 1 - levenshtein(x, y) / Math.max(x.length, y.length);
+}
+
+/**
+ * Locate the card's clean name tokens inside a noisy MRZ name string ("SATTAROVCSELBEXCRAKMIMJONCUGLI")
+ * and return what follows them (the patronymic), with filler letters removed.
+ */
+function remainderAfter(noisy: string, tokens: string[]) {
+  let pos = 0;
+  for (const token of tokens) {
+    let best = { score: 0, end: -1 };
+    for (let start = pos; start <= pos + 3 && start < noisy.length; start++) {
+      for (const len of [token.length - 1, token.length, token.length + 1]) {
+        const score = similarity(noisy.slice(start, start + len), token);
+        if (score >= best.score && score > 0) best = { score, end: start + len };
+      }
+    }
+    if (best.score < 0.7) return null;
+    pos = best.end;
+  }
+  const rest = noisy.slice(pos).replace(/^[<CKSLE]{1,2}/, "").replace(/[<]+/g, " ").trim();
+  const m = /^([A-Z]{2,})(UGLI|OGLI|QIZI|KIZI)$/.exec(rest.replace(/\s/g, ""));
+  if (!m) return rest || null;
+  // "RAKHIMJONCUGLI": a C/K right after a consonant is the '<' separator; "OTABEKUGLI" keeps its K.
+  const father = /[^AEIOU][CK]$/.test(m[1]) ? m[1].slice(0, -1) : m[1];
+  return `${father} ${m[2]}`;
+}
+
+/** Pick the card's name line that best matches the passport (or the first one). */
+function arcName(arc: ResidenceCardData | null, passport: PassportData | null) {
+  const lines = arc?.names ?? [];
+  if (!lines.length) return null;
+  const ref = [passport?.lastName, passport?.firstName].filter(Boolean).join(" ");
+  const best = ref ? [...lines].sort((a, b) => similarity(b, ref) - similarity(a, ref))[0] : lines[0];
+  const tokens = best.split(" ");
+  // A name line that has nothing in common with a readable passport name is OCR noise.
+  if (ref && passport?.namesClean && similarity(best, ref) < 0.4) return null;
+  return { lastName: tokens[0], firstName: tokens[1], middleName: tokens.length > 2 ? fixPatronymic(tokens.slice(2).join(" ")) : undefined };
+}
+
+/**
+ * Combine what was read from the passport and the residence card. A passport value that
+ * passed its MRZ check digit wins; otherwise the residence card (printed in a larger, cleaner
+ * font, with the birth date and sex encoded in the ARC number) fills or corrects it.
+ */
+export function reconcile(passport: PassportData | null, arc: ResidenceCardData | null): Merged {
+  const merged: Merged = { values: {}, sources: {}, conflicts: {}, uncertain: [] };
+  const set = (field: MergedField, value: string | undefined, source: Source) => {
+    if (!value) return;
+    merged.values[field] = value;
+    merged.sources[field] = source;
+  };
+  const pick = (field: MergedField, p: string | undefined, a: string | undefined, passportReliable: boolean, same: (x: string, y: string) => boolean) => {
+    if (p && a) {
+      if (same(p, a)) return set(field, passportReliable ? p : a, "both");
+      merged.conflicts[field] = { passport: p, arc: a };
+      return set(field, passportReliable ? p : a, passportReliable ? "passport" : "arc");
+    }
+    if (p) return set(field, p, "passport");
+    if (a) return set(field, a, "arc");
+  };
+
+  const fromCard = arcName(arc, passport);
+  const namesReliable = !!passport?.namesClean;
+  const nameSame = (x: string, y: string) => similarity(x, y) >= 0.75;
+  let p = passport;
+  // Noisy MRZ names that still contain the card's name: not a real conflict. Use the card's
+  // spelling and recover the patronymic from what follows it.
+  if (p && !namesReliable && fromCard?.lastName && fromCard.firstName) {
+    const noisy = [p.lastName, p.firstName, p.middleName].filter(Boolean).join("").replace(/\s/g, "");
+    const rest = remainderAfter(noisy, [fromCard.lastName, fromCard.firstName]);
+    if (rest !== null) {
+      p = { ...p, lastName: fromCard.lastName, firstName: fromCard.firstName, middleName: fromCard.middleName ?? (rest || undefined) };
+      if (!fromCard.middleName && rest) merged.uncertain.push("middleName");
+    }
+  }
+  if (p && !namesReliable && fromCard) {
+    // Unreadable passport names are not a disagreement: the card's name is used as is.
+    p = { ...p, lastName: fromCard.lastName, firstName: fromCard.firstName, middleName: fromCard.middleName ?? p.middleName };
+  }
+  pick("lastName", p?.lastName, fromCard?.lastName, namesReliable, nameSame);
+  pick("firstName", p?.firstName, fromCard?.firstName, namesReliable, nameSame);
+  pick("middleName", p?.middleName, fromCard?.middleName, namesReliable || !fromCard?.middleName, nameSame);
+
+  pick("birthDate", passport?.birthDate, arc?.birthDate, !!passport?.birthDateOk, (x, y) => x === y);
+  pick("gender", passport?.gender, arc?.gender, false, (x, y) => x === y);
+  set("passportNumber", passport?.passportNumber, "passport");
+  pick("citizenship", passport?.citizenship, arc?.citizenship, true, (x, y) => x === y);
+  set("arcNumber", arc?.arcNumber, "arc");
+  set("visaType", arc?.visaType, "arc");
+
+  const unconfirmed = (field: MergedField, ok: boolean) => {
+    if (merged.values[field] && merged.sources[field] !== "both" && !ok && !merged.uncertain.includes(field)) merged.uncertain.push(field);
+  };
+  unconfirmed("passportNumber", !!passport?.numberOk);
+  unconfirmed("birthDate", !!passport?.birthDateOk || merged.sources.birthDate === "arc");
+  for (const f of ["lastName", "firstName", "middleName"] as const) unconfirmed(f, namesReliable || merged.sources[f] === "arc");
+  return merged;
 }

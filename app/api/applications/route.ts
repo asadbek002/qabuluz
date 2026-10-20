@@ -15,7 +15,13 @@ const required = ["lastName","firstName","middleName","birthDate","gender","citi
 
 const bad = (error: string, status = 400) => NextResponse.json({ error }, { status });
 
-const ocrKeys = { passport: ["lastName", "firstName", "middleName", "passportNumber", "birthDate", "gender", "citizenship", "verified"], arc: ["arcNumber", "visaType"] } as const;
+const mergedKeys = ["lastName", "firstName", "middleName", "passportNumber", "birthDate", "gender", "citizenship", "arcNumber", "visaType"] as const;
+const ocrKeys = {
+  passport: [...mergedKeys.slice(0, 7), "verified"],
+  arc: ["arcNumber", "visaType", "birthDate", "gender", "citizenship"],
+  merged: mergedKeys,
+  sources: mergedKeys,
+} as const;
 
 /** Keep only the known OCR fields (short strings) sent by the form. */
 function sanitizeOcr(raw: string) {

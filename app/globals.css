@@ -80,3 +80,7 @@ footer{padding:10px 24px 40px;text-align:center;color:#7a8699;font-size:12px}.su
 .ocr-table td{padding:7px 8px;border-bottom:1px solid #f2f4f7;overflow-wrap:anywhere}.ocr-table tr.same td:last-child{color:#067647;font-weight:700}
 .ocr-table tr.diff td{background:#fffaeb}.ocr-table tr.diff td:last-child{color:#b54708;font-weight:700}.ocr-table tr.missing td:last-child{color:#98a2b3}
 .info-box svg{flex:none;margin-top:1px}
+.field.check input,.field.check select{border-color:#fdb022;background:#fffcf5}
+.notice.conflict{background:#fffaeb;color:#93370d}.notice.conflict>div{display:flex;flex-direction:column;gap:8px}
+.conflict-options{display:flex;flex-wrap:wrap;gap:8px}.conflict-options button{padding:8px 11px;border:1.5px solid #fec84b;border-radius:10px;background:#fff;color:#7a2e0e;font-size:12px;cursor:pointer}
+.conflict-options button.selected{border-color:#dc6803;background:#fef0c7}
