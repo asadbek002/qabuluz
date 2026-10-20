@@ -6,7 +6,7 @@ import { compressImage } from "@/lib/compress-image";
 import { baseAdmissionTypes, certificateLevels, cisCountries, genders, languageTypes, mastersProgram, semesters, universities, visaTypes } from "@/lib/universities";
 
 const fieldLabels: Record<string, string> = {
-  lastName: "Familiya", firstName: "Ism", middleName: "Otasining ismi",
+  lastName: "Familiya", firstName: "Ism", middleName: "Otchestvo",
   birthDate: "Tug‘ilgan sana", gender: "Jinsi", citizenship: "Fuqaroligi",
   phone: "Telefon raqami", telegram: "Telegram username", email: "Elektron pochta",
   address: "Hozirgi yashash manzili", visaType: "Viza turi",
@@ -176,7 +176,7 @@ export default function ApplicationForm() {
         <div className="form-grid">
           <Input label="Familiya (pasportdagidek, lotincha)" name="lastName" placeholder="ALIYEV" form={form} update={update}/>
           <Input label="Ism (pasportdagidek, lotincha)" name="firstName" placeholder="VALI" form={form} update={update}/>
-          <Input label="Otasining ismi" name="middleName" form={form} update={update}/>
+          <Input label="Otchestvo" name="middleName" form={form} update={update}/>
           <Input label="Tug‘ilgan sana" name="birthDate" type="date" form={form} update={update}/>
           <Select label="Jinsi" value={form.gender} onChange={(v) => update("gender", v)} options={genders} placeholder="Tanlang"/>
           <Select label="Fuqaroligi" value={form.citizenship} onChange={(v) => update("citizenship", v)} options={cisCountries} placeholder="Davlatni tanlang"/>
