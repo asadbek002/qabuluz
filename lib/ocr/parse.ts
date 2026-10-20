@@ -17,6 +17,8 @@ export type PassportData = {
   namesClean?: boolean;
   /** MRZ check digit of the passport number, used to verify the printed number */
   numberCheck?: string;
+  /** MRZ and printed names differ (neither is protected by a check digit): ask to check */
+  namesDisagree?: boolean;
 };
 
 export type ResidenceCardData = {
@@ -70,6 +72,15 @@ function mrzDate(yymmdd: string, past: boolean) {
 
 const clean = (line: string) => line.toUpperCase().replace(/\s+/g, "").replace(/[«‹(\[{]/g, "<");
 
+/** A line that is mostly MRZ characters; stray symbols become '<' so positions don't shift. */
+function mrzLine(line: string) {
+  const l = clean(line);
+  // TD3 lines are 44 characters; allow a few dropped / extra ones.
+  if (l.length < 32 || l.length > 50) return null;
+  const valid = l.replace(/[^A-Z0-9<]/g, "").length;
+  return valid / l.length >= 0.85 ? l.replace(/[^A-Z0-9<]/g, "<") : null;
+}
+
 /** Uzbek passport numbers are 2 letters + 7 digits (FA3852303). */
 function fixPassportNumber(raw: string) {
   const s = raw.replace(/</g, "");
@@ -92,13 +103,22 @@ function splitGivenNames(raw: string[]) {
   return { firstName: tokens[0], middleName: fixPatronymic(tokens.slice(1).join(" ")) || undefined };
 }
 
-/** Find and decode a TD3 MRZ in OCR text. */
+/** Find and decode a TD3 MRZ in OCR text; with several readings (passes), keep the best one. */
 export function parseMrz(text: string): PassportData | null {
-  const lines = text.split(/\n/).map(clean).filter((l) => l.length >= 30 && /^[A-Z0-9<]+$/.test(l.replace(/[^A-Z0-9<]/g, "")));
-  const l1Index = lines.findIndex((l) => /^P[A-Z<]/.test(l) && l.includes("<"));
-  if (l1Index < 0) return null;
-  const line1 = lines[l1Index].replace(/[^A-Z0-9<]/g, "");
-  const line2 = (lines[l1Index + 1] ?? "").replace(/[^A-Z0-9<]/g, "");
+  const lines = text.split(/\n/).map(mrzLine).filter((l): l is string => !!l);
+  let best: PassportData | null = null;
+  lines.forEach((line, i) => {
+    // Line 1: "P<UZB…" with the "<<" surname separator / fillers. Line 2: number, dates, digits.
+    if (!/^P[A-Z<]/.test(line) || !/<</.test(line)) return;
+    const line2 = lines.slice(i + 1).find((l) => (l.match(/\d/g) ?? []).length >= 12) ?? "";
+    const parsed = decodeMrz(line, line2);
+    const rank = (p: PassportData) => (p.verified ? 4 : 0) + (p.namesClean ? 2 : 0) + (p.numberOk ? 1 : 0);
+    if (!best || rank(parsed) > rank(best)) best = parsed;
+  });
+  return best;
+}
+
+function decodeMrz(line1: string, line2: string): PassportData {
 
   // Line 1: P<UZBSURNAME<<GIVEN<NAMES<<<<
   let names = letters(line1.slice(5)).replace(/[KC<]{3,}$/, "").replace(/<+$/, "");
@@ -157,14 +177,14 @@ export function parsePassportVisual(text: string): Partial<PassportData> {
   const lines = text.toUpperCase().split(/\n/).map((l) => l.trim()).filter(Boolean);
   const out: Partial<PassportData> = {};
   const surname = valueAfter(lines, /SURNAME/);
-  const given = valueAfter(lines, /GIVEN NAMES?/);
+  const given = valueAfter(lines, /GIVEN\s*NAMES?/);
   const father = valueAfter(lines, /FATHER/);
   if (surname) out.lastName = surname;
   if (given) out.firstName = given.split(" ")[0];
   if (father) out.middleName = fixPatronymic(father);
   const number = /\b([A-Z]{2})\s?(\d{7})\b/.exec(text.toUpperCase());
   if (number) out.passportNumber = number[1] + number[2];
-  const dobLine = lines.findIndex((l) => /DATE OF BIRTH/.test(l));
+  const dobLine = lines.findIndex((l) => /DATE\s*OF\s*BIRTH/.test(l));
   if (dobLine >= 0) {
     const m = /(\d{2})[ .\/-]?(\d{2})[ .\/-]?(\d{4})/.exec(lines.slice(dobLine + 1, dobLine + 3).join(" "));
     if (m) out.birthDate = `${m[3]}-${m[2]}-${m[1]}`;
@@ -195,6 +215,8 @@ export function parsePassport(text: string): PassportData | null {
   // name when it agrees with the MRZ letters.
   const mrzLetters = (mrz?.lastName ?? "") + (mrz?.firstName ?? "") + (mrz?.middleName ?? "");
   const agrees = (v?: string) => !!v && (!mrz || mrzLetters.replace(/\s/g, "").includes(v.replace(/[\s']/g, "").slice(0, 4)));
+  const differs = (v?: string, m?: string) => !!v && !!m && v.replace(/[^A-Z]/g, "") !== m.replace(/[^A-Z]/g, "");
+  base.namesDisagree = !!mrz && (differs(visual.lastName, mrz.lastName) || differs(visual.firstName, mrz.firstName) || differs(visual.middleName, mrz.middleName));
   if (agrees(visual.lastName)) base.lastName = visual.lastName;
   if (agrees(visual.firstName)) base.firstName = visual.firstName;
   if (agrees(visual.middleName)) base.middleName = visual.middleName;
@@ -358,7 +380,9 @@ export function reconcile(passport: PassportData | null, arc: ResidenceCardData 
 
   const fromCard = arcName(arc, passport);
   const namesReliable = !!passport?.namesClean;
-  const nameSame = (x: string, y: string) => similarity(x, y) >= 0.75;
+  // Readable names on both documents must match letter for letter; a one-letter difference
+  // (RAKHINJON vs RAKHIMJON) is exactly what OCR gets wrong, so the student picks.
+  const nameSame = (x: string, y: string) => x.replace(/[^A-Z]/g, "") === y.replace(/[^A-Z]/g, "");
   let p = passport;
   // Noisy MRZ names that still contain the card's name: not a real conflict. Use the card's
   // spelling and recover the patronymic from what follows it.
@@ -390,6 +414,6 @@ export function reconcile(passport: PassportData | null, arc: ResidenceCardData 
   };
   unconfirmed("passportNumber", !!passport?.numberOk);
   unconfirmed("birthDate", !!passport?.birthDateOk || merged.sources.birthDate === "arc");
-  for (const f of ["lastName", "firstName", "middleName"] as const) unconfirmed(f, namesReliable || merged.sources[f] === "arc");
+  for (const f of ["lastName", "firstName", "middleName"] as const) unconfirmed(f, (namesReliable && !passport?.namesDisagree) || merged.sources[f] === "arc");
   return merged;
 }

@@ -1,23 +1,13 @@
-// Browser-only OCR: turns an uploaded image or PDF into text with tesseract.js and parses it.
-// Everything runs on the student's device; the engine files are served from /ocr (see
-// scripts/copy-ocr-assets.mjs), so no document image is sent anywhere for recognition.
-import type { Worker } from "tesseract.js";
+// Browser-only OCR: turns an uploaded image or PDF into text with PaddleOCR (PP-OCRv4 on
+// onnxruntime-web, see ./ppocr) and parses it. Everything runs on the student's device; the
+// engine files are served from /ocr (scripts/copy-ocr-assets.mjs), so no document image is
+// sent anywhere for recognition.
+import { linesToText, preloadPpOcr, readLines } from "./ppocr";
 import { parsePassport, parseResidenceCard, type PassportData, type ResidenceCardData } from "./parse";
-
-let workerPromise: Promise<Worker> | null = null;
-
-function getWorker() {
-  workerPromise ??= import("tesseract.js").then((mod) => {
-    // CommonJS package: bundlers expose it either as named exports or under `default`.
-    const createWorker = typeof mod.createWorker === "function" ? mod.createWorker : mod.default.createWorker;
-    return createWorker("eng", 1, { workerPath: "/ocr/worker.min.js", corePath: "/ocr/core", langPath: "/ocr/lang", gzip: false });
-  }).catch((error) => { workerPromise = null; throw error; });
-  return workerPromise;
-}
 
 /** Start downloading the OCR engine early (e.g. when the documents step opens). */
 export function preloadOcr() {
-  getWorker().catch(() => {});
+  preloadPpOcr();
 }
 
 async function pdfFirstPage(file: File): Promise<HTMLCanvasElement> {
@@ -205,11 +195,13 @@ async function upright(src: HTMLCanvasElement) {
   const straight = cropToInk(angle ? rotate(src, angle) : src);
   // Upside-down text still yields "words" with some confidence, so judge by words that are
   // printed on every Uzbek passport / Korean residence card; fall back to confidence.
-  const keywords = /PASSPORT|PASPORT|REPUBLIC|RESPUBLIKASI|UZBEKISTAN|SURNAME|GIVEN|NAMES|NATIONALITY|BIRTH|AUTHORITY|EXPIRY|RESIDENCE|CARD|IMMIGRATION|OFFICE|CHIEF|P<UZB|<<<|\d{6}-\d{7}/g;
+  // ("<<<" is left out: it reads the same upside down.)
+  const keywords = /PASSPORT|PASPORT|REPUBLIC|RESPUBLIKASI|UZBEKISTAN|SURNAME|GIVEN|NAMES|NATIONALITY|BIRTH|AUTHORITY|EXPIRY|RESIDENCE|CARD|IMMIGRATION|OFFICE|CHIEF|P<UZB|\d{6}-\d{7}/g;
   const probe = async (deg: number) => {
-    const { text, confidence } = await ocrRaw(prepare(straight, { rotate: deg, targetWidth: 1200 }), "page");
+    const { text, confidence } = await ocrRaw(deg ? rotate(straight, deg) : straight, 960, 8);
     const hits = (text.toUpperCase().replace(/\s+(?=[-<])|(?<=[-<])\s+/g, "").match(keywords) ?? []).length;
-    return hits * 1000 + confidence * Math.min(30, (text.match(/[A-Za-z0-9]{3,}/g) ?? []).length) / 100;
+    // Upside-down lines get low recognition scores, so confidence breaks ties.
+    return hits * 1000 + confidence;
   };
   const upright0 = await probe(0);
   // A clear keyword hit at 0° means the photo is already upright: skip the second pass.
@@ -217,56 +209,45 @@ async function upright(src: HTMLCanvasElement) {
   return upright180 > upright0 ? rotate(straight, 180) : straight;
 }
 
-const MRZ_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789<";
-
-async function ocr(canvas: HTMLCanvasElement, mode: "page" | "mrz") {
-  return (await ocrRaw(canvas, mode)).text;
+async function ocrRaw(canvas: HTMLCanvasElement, limit = 1280, maxBoxes = Infinity) {
+  const lines = await readLines(canvas, limit, maxBoxes);
+  const confidence = lines.length ? (lines.reduce((sum, l) => sum + l.score, 0) / lines.length) * 100 : 0;
+  return { text: linesToText(lines), confidence };
 }
 
-async function ocrRaw(canvas: HTMLCanvasElement, mode: "page" | "mrz") {
-  const worker = await getWorker();
-  await worker.setParameters({
-    tessedit_char_whitelist: mode === "mrz" ? MRZ_CHARS : "",
-    tessedit_pageseg_mode: (mode === "mrz" ? "6" : "3") as never,
-    preserve_interword_spaces: "1",
-  });
-  const { data } = await worker.recognize(canvas);
-  return { text: data.text, confidence: data.confidence };
+async function ocr(canvas: HTMLCanvasElement, limit = 1280) {
+  return (await ocrRaw(canvas, limit)).text;
+}
+
+/** Horizontal band of the image (fractions of its height), in colour. */
+function band(src: HTMLCanvasElement, top: number, bottom = 1) {
+  const out = document.createElement("canvas");
+  out.width = src.width;
+  out.height = Math.max(1, Math.round(src.height * (bottom - top)));
+  out.getContext("2d")!.drawImage(src, 0, Math.round(src.height * top), src.width, out.height, 0, 0, out.width, out.height);
+  return out;
 }
 
 export type PassportResult = { data: PassportData | null; pdf: boolean };
 
-/** Reads the passport data page: dedicated MRZ passes first, then the whole page as fallback. */
+/** Reads the passport data page: whole page first, then extra passes only while it is incomplete. */
 export async function readPassport(file: File): Promise<PassportResult> {
   const source = await upright(await toCanvas(file));
-  let best: PassportData | null = null;
-  // Cheap passes first; the later ones (upscaled black/white, deskewed, sideways) only run
-  // while the result is still incomplete, i.e. for low-quality photos.
-  const attempts: [Prepare, "page" | "mrz"][] = [
-    [{ top: 0.7, targetWidth: 1800 }, "mrz"],
-    [{ top: 0.55, targetWidth: 1800 }, "mrz"],
-    [{ targetWidth: 2000 }, "page"],
-    [{ top: 0.65, targetWidth: 2600, binarize: true }, "mrz"],
-    [{ top: 0.6, targetWidth: 2000, rotate: -3 }, "mrz"],
-    [{ top: 0.6, targetWidth: 2000, rotate: 3 }, "mrz"],
-    [{ targetWidth: 2600, binarize: true }, "page"],
+  const attempts: (() => Promise<string>)[] = [
+    () => ocr(source),
+    // MRZ band at a higher effective resolution (the detector input is capped).
+    () => ocr(band(source, 0.6), 1600),
+    () => ocr(prepare(source, { targetWidth: Math.min(2400, Math.max(1600, source.width)), binarize: true })),
     // In case the upright guess was wrong (e.g. a very dark photo).
-    [{ rotate: 180, top: 0.6, targetWidth: 1800 }, "mrz"],
+    () => ocr(rotate(source, 180)),
   ];
-  let pageText = "";
-  let mrzText = "";
-  for (const [opts, mode] of attempts) {
-    const text = await ocr(prepare(source, opts), mode);
-    if (mode === "page" && text.trim().length > pageText.trim().length) pageText = text;
-    const parsed = parsePassport(`${pageText}\n${text}`);
-    if (parsed && (!best || score(parsed) > score(best))) { best = parsed; if (mode === "mrz") mrzText = text; }
+  let text = "";
+  let best: PassportData | null = null;
+  for (const attempt of attempts) {
+    text += `\n${await attempt()}`;
+    const parsed = parsePassport(text);
+    if (parsed && (!best || score(parsed) > score(best))) best = parsed;
     if (best?.verified && best.namesClean) break;
-  }
-  // The MRZ truncates long names; when it was read before the full page, also read the
-  // printed names and let parsePassport merge them.
-  if (best?.verified && !pageText) {
-    const merged = parsePassport(`${await ocr(prepare(source, { targetWidth: 2000 }), "page")}\n${mrzText}`);
-    if (merged?.verified) best = merged;
   }
   return { data: best, pdf: isPdf(file) };
 }
@@ -278,8 +259,9 @@ function score(p: PassportData) {
 export async function readResidenceCard(file: File): Promise<ResidenceCardData | null> {
   const source = await upright(await toCanvas(file));
   let best: ResidenceCardData | null = null;
-  for (const opts of [{ targetWidth: 1600 }, { targetWidth: 2400 }, { targetWidth: 1600, binarize: true }, { rotate: 180, targetWidth: 1600 }]) {
-    const parsed = parseResidenceCard(await ocr(prepare(source, opts), "page"));
+  const attempts = [() => ocr(source), () => ocr(source, 1920), () => ocr(prepare(source, { targetWidth: 1600, binarize: true })), () => ocr(rotate(source, 180))];
+  for (const attempt of attempts) {
+    const parsed = parseResidenceCard(await attempt());
     if (parsed && (!best || Object.keys(parsed).length > Object.keys(best).length)) best = parsed;
     if (best?.arcNumber && best.visaType && best.names) break;
   }

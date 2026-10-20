@@ -8,7 +8,7 @@ allowBuilds:
   sharp: true
   unrs-resolver: true
   workerd: true
-  # tesseract.js postinstall only prints a funding message
-  tesseract.js: false
+  # protobufjs postinstall (via onnxruntime-web) only checks versions
+  protobufjs: false
 overrides:
   miniflare>sharp: 0.35.4
