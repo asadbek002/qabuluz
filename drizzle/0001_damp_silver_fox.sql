@@ -1,0 +1,1 @@
+ALTER TABLE "applications" ADD COLUMN "graduation_date" text;

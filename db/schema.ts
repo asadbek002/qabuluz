@@ -16,6 +16,7 @@ export const applications = pgTable("applications", {
   address: text("address").notNull(),
   visaType: text("visa_type").notNull(),
   previousSchool: text("previous_school").notNull(),
+  graduationDate: text("graduation_date"),
   admissionType: text("admission_type").notNull(),
   languageType: text("language_type").notNull(),
   languageLevel: text("language_level").notNull(),

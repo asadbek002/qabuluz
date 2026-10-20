@@ -8,6 +8,7 @@ Koreya universitetlariga hujjat topshirish sayti (Next.js / vinext + PostgreSQL)
 - Telefon `+8210XXXXXXXX` formatida, barcha tanlovlar serverda ham tekshiriladi.
 - PDF va rasm hujjatlar: telefon rasmlari brauzerda avtomatik kichraytiriladi (JPEG, max 2200px), PDF 20 MB gacha; fayl turi uning ichidan aniqlanadi.
 - Admin (`/admin`) arizalarni ko‘radi, qidiradi, hujjatlarni ochadi va Excel’ga eksport qiladi.
+- Excel eksport universitetlarning ariza shabloni (`templates/applicants-template.xlsx`) asosida chiqadi: arizalar bakalavr / magistratura / ko‘chirish va til sertifikati bor-yo‘qligiga qarab varaqlarga taqsimlanadi, ism koreys yozuviga avtomatik o‘giriladi. Shablonni almashtirish uchun shu faylni yangisiga almashtiring (ustunlar tartibi A–Q bir xil qolishi kerak). Yo‘nalish, kampus va boshqa qiymatlarning koreyscha nomlari `lib/korean.ts` da.
 
 ## Serverga deploy (Ubuntu 22.04/24.04)
 

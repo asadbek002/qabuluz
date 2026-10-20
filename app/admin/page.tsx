@@ -4,6 +4,7 @@ import { getDb } from "@/db";
 import { applications } from "@/db/schema";
 import { universities } from "@/lib/universities";
 import { isAdmin } from "@/lib/admin-auth";
+import { toHangulName } from "@/lib/korean";
 import { login, logout } from "./actions";
 
 export const dynamic = "force-dynamic";
@@ -27,14 +28,14 @@ export default async function AdminPage({ searchParams }: { searchParams: Promis
   return <main className="admin-shell">
     <aside className="admin-side"><div className="brand"><span className="brand-mark">A</span><span>Admin panel</span></div><nav><a className="active" href="/admin">Barcha arizalar <b>{all.length}</b></a><Link href="/">Talaba sahifasi</Link></nav><form action={logout}><button>Chiqish</button></form></aside>
     <section className="admin-main">
-      <div className="admin-head"><div><p className="eyebrow">Boshqaruv</p><h1>Talabalar arizalari</h1></div><div className="admin-head-actions"><span>{filtered.length} ta ariza</span><a className="export-button" href={exportHref}>Excel yuklab olish</a></div></div>
+      <div className="admin-head"><div><p className="eyebrow">Boshqaruv</p><h1>Talabalar arizalari</h1></div><div className="admin-head-actions"><span>{filtered.length} ta ariza</span><a className="export-button" href={exportHref} download>Excel yuklab olish</a></div></div>
       <form className="filters"><input name="q" defaultValue={params.q} placeholder="Ism, telefon yoki ariza raqami"/><select name="university" defaultValue={params.university || ""}><option value="">Barcha universitetlar</option>{universities.map(u=><option value={u.id} key={u.id}>{u.ko} — {u.uz}</option>)}</select><button>Qidirish</button></form>
       <div className="application-list">
         {filtered.map((a) => { const u=universities.find(u=>u.id===a.universityId); const docs=parseDocs(a.documents); return <details className="application-row" key={a.id}>
           <summary><div><strong>{a.lastName} {a.firstName}</strong><span>{a.applicationNo}</span></div><div><strong>{u?.ko || a.universityId}</strong><span>{a.campus} · {a.program}</span></div><div><strong>{a.languageType}: {a.languageLevel}</strong><span>{new Date(a.createdAt).toLocaleDateString("uz-UZ")}</span></div></summary>
           <div className="application-detail">
-            <Info title="Shaxsiy ma’lumotlar" rows={[["F.I.Sh.",`${a.lastName} ${a.firstName} ${a.middleName}`],["Tug‘ilgan sana",a.birthDate],["Jinsi",a.gender],["Fuqaroligi",a.citizenship],["Telefon",a.phone],["Telegram",a.telegram],["E-mail",a.email],["Manzil",a.address],["Viza",a.visaType],["Pasport",a.passportNumber],["ID karta",a.arcNumber || "—"]]}/>
-            <Info title="Ta’lim va dastur" rows={[["Ta’lim muassasasi",a.previousSchool],["Qabul turi",a.admissionType],["Til sertifikati",`${a.languageType}: ${a.languageLevel}`],["Universitet",`${u?.ko} — ${u?.uz}`],["Kampus",a.campus],["Yo‘nalish",a.program],["Ta’lim tili",a.track],["Semestr",a.semester]]}/>
+            <Info title="Shaxsiy ma’lumotlar" rows={[["F.I.Sh.",`${a.lastName} ${a.firstName} ${a.middleName}`],["Koreyscha ism",toHangulName(a.lastName, a.firstName)],["Tug‘ilgan sana",a.birthDate],["Jinsi",a.gender],["Fuqaroligi",a.citizenship],["Telefon",a.phone],["Telegram",a.telegram],["E-mail",a.email],["Manzil",a.address],["Viza",a.visaType],["Pasport",a.passportNumber],["ID karta",a.arcNumber || "—"]]}/>
+            <Info title="Ta’lim va dastur" rows={[["Ta’lim muassasasi",a.previousSchool],["Bitirgan sana",a.graduationDate],["Qabul turi",a.admissionType],["Til sertifikati",`${a.languageType}: ${a.languageLevel}`],["Universitet",`${u?.ko} — ${u?.uz}`],["Kampus",a.campus],["Yo‘nalish",a.program],["Ta’lim tili",a.track],["Semestr",a.semester]]}/>
             <div className="admin-docs"><h3>Hujjatlar</h3>{Object.keys(docs).length ? Object.entries(docs).map(([field,d])=><a key={field} href={`/api/documents/${a.id}/${field}`} target="_blank" rel="noopener noreferrer">{d.name}</a>) : <span>Hujjat yuklanmagan</span>}</div>
           </div>
         </details>})}

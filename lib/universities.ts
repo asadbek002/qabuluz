@@ -2,6 +2,7 @@ export type University = {
   id: string;
   ko: string;
   uz: string;
+  en: string;
   location: string;
   campuses: string[];
   duration: string;
@@ -17,6 +18,7 @@ export const universities: University[] = [
     id: "chungcheong",
     ko: "충청대학교",
     uz: "Chung Cheong universiteti",
+    en: "Chung Cheong University",
     location: "Cheongju",
     campuses: ["Cheongju"],
     duration: "2–3 yillik kasbiy ta’lim",
@@ -29,6 +31,7 @@ export const universities: University[] = [
     id: "yewon",
     ko: "예원예술대학교",
     uz: "Yewon san’at universiteti",
+    en: "Yewon Arts University",
     location: "Yangju / Imsil",
     campuses: ["Yangju", "Imsil"],
     duration: "4 yillik bakalavr",
@@ -42,6 +45,7 @@ export const universities: University[] = [
     id: "induk",
     ko: "인덕대학교",
     uz: "Induk universiteti",
+    en: "Induk University",
     location: "Seoul",
     campuses: ["Seoul"],
     duration: "2 yillik kasbiy ta’lim",
@@ -54,6 +58,7 @@ export const universities: University[] = [
     id: "seoyeong",
     ko: "서영대학교",
     uz: "Seoyeong universiteti",
+    en: "Seoyeong University",
     location: "Gwangju / Paju",
     campuses: ["Gwangju", "Paju"],
     duration: "2 yillik kasbiy ta’lim",
@@ -66,6 +71,7 @@ export const universities: University[] = [
     id: "shinansan",
     ko: "신안산대학교",
     uz: "Shin Ansan universiteti",
+    en: "Shin Ansan University",
     location: "Ansan",
     campuses: ["Ansan"],
     duration: "2–3 yillik kasbiy ta’lim",
@@ -78,6 +84,7 @@ export const universities: University[] = [
     id: "chungwoon",
     ko: "청운대학교",
     uz: "Chungwoon universiteti",
+    en: "Chungwoon University",
     location: "Hongseong / Incheon",
     campuses: ["Hongseong", "Incheon"],
     duration: "4 yillik bakalavr",

@@ -10,7 +10,7 @@ const fieldLabels: Record<string, string> = {
   birthDate: "Tug‘ilgan sana", gender: "Jinsi", citizenship: "Fuqaroligi",
   phone: "Telefon raqami", telegram: "Telegram username", email: "Elektron pochta",
   address: "Hozirgi yashash manzili", visaType: "Viza turi",
-  previousSchool: "Bitirgan maktab, kollej yoki universitet",
+  previousSchool: "Bitirgan maktab, kollej yoki universitet", graduationDate: "Bitirgan sana",
   admissionType: "Qabul turi", languageType: "Til sertifikati",
   languageLevel: "Darajasi yoki bali", passportNumber: "Xorijga chiqish pasporti raqami",
   arcNumber: "Koreya ID karta raqami", campus: "Kampus", program: "Yo‘nalish",
@@ -20,7 +20,7 @@ const fieldLabels: Record<string, string> = {
 const requiredByStep: Record<number, string[]> = {
   1: [],
   2: ["campus", "program", "track", "semester"],
-  3: ["lastName", "firstName", "middleName", "birthDate", "gender", "citizenship", "phone", "telegram", "email", "address", "visaType", "previousSchool", "admissionType", "languageType", "languageLevel", "passportNumber"],
+  3: ["lastName", "firstName", "middleName", "birthDate", "gender", "citizenship", "phone", "telegram", "email", "address", "visaType", "previousSchool", "graduationDate", "admissionType", "languageType", "languageLevel", "passportNumber"],
   4: [],
 };
 
@@ -174,8 +174,8 @@ export default function ApplicationForm() {
         <div className="section-title"><p>3-qadam</p><h2>Talaba ma’lumotlari</h2><span>Ma’lumotlarni pasportdagidek aniq kiriting.</span></div>
         <h3 className="form-heading">Shaxsiy ma’lumotlar</h3>
         <div className="form-grid">
-          <Input label="Familiya" name="lastName" form={form} update={update}/>
-          <Input label="Ism" name="firstName" form={form} update={update}/>
+          <Input label="Familiya (pasportdagidek, lotincha)" name="lastName" placeholder="ALIYEV" form={form} update={update}/>
+          <Input label="Ism (pasportdagidek, lotincha)" name="firstName" placeholder="VALI" form={form} update={update}/>
           <Input label="Otasining ismi" name="middleName" form={form} update={update}/>
           <Input label="Tug‘ilgan sana" name="birthDate" type="date" form={form} update={update}/>
           <Select label="Jinsi" value={form.gender} onChange={(v) => update("gender", v)} options={genders} placeholder="Tanlang"/>
@@ -191,6 +191,7 @@ export default function ApplicationForm() {
         <h3 className="form-heading">Ta’lim va til ma’lumotlari</h3>
         <div className="form-grid">
           <Input label="O‘zbekistonda bitirgan ta’lim muassasasi" name="previousSchool" form={form} update={update} wide/>
+          <Input label="Bitirgan sana (yil va oy)" name="graduationDate" type="month" placeholder="2024-06" form={form} update={update}/>
           <Select label="Til sertifikati" value={form.languageType} onChange={(v) => {update("languageType", v); update("languageLevel", v === "Mavjud emas" ? "Mavjud emas" : "");}} options={languageTypes}/>
           <Select label={form.languageType === "TOPIK" ? "TOPIK darajasi" : form.languageType === "Mavjud emas" ? "Darajasi yoki bali" : `${form.languageType} darajasi yoki bali`} value={form.languageLevel} onChange={(v) => update("languageLevel", v)} options={certificateLevels[form.languageType] || []} placeholder={form.languageType === "Mavjud emas" ? "Mavjud emas" : "Darajani tanlang"} disabled={form.languageType === "Mavjud emas"}/>
         </div>

@@ -21,6 +21,7 @@ ENV NODE_ENV=production \
 COPY --from=build --chown=node:node /app/dist/standalone ./
 COPY --from=build --chown=node:node /app/dist/migrate/migrate.mjs ./migrate.mjs
 COPY --from=build --chown=node:node /app/drizzle ./drizzle
+COPY --from=build --chown=node:node /app/templates ./templates
 COPY --chmod=755 scripts/docker-entrypoint.sh /usr/local/bin/app-entrypoint
 RUN mkdir -p /app/data/uploads && chown -R node:node /app/data
 
