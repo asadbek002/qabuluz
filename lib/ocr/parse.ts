@@ -162,64 +162,114 @@ function decodeMrz(line1: string, line2: string): PassportData {
   return result;
 }
 
-function valueAfter(lines: string[], label: RegExp) {
-  const i = lines.findIndex((l) => label.test(l));
+/** The labels of the Uzbek passport data page ("UZBEK / ENGLISH"), tolerant to OCR glueing words together. */
+const labels = {
+  surname: /FAMIL|SURNAME|SURN/,
+  father: /OTASI|FATHER|FATHERS/,
+  given: /GIVEN|^ISMI|[^A]ISMI\b|ISMI\//,
+  nationality: /FUQARO|NATIONAL/,
+  birth: /BIRTH|TUG.?ILGAN|SANAS/,
+  sex: /JINSI|\bSEX\b/,
+};
+const anyLabel = /\/|SURNAME|GIVEN|FATHER|NATIONAL|BIRTH|AUTHORITY|ISSUE|EXPIRY|PASSPORT|PASPORT|REPUBLIC|RESPUBLIKAS|SIGNATURE|PLACE|TYPE|CODE/;
+
+/** Value printed under a label: the next line(s) that are not themselves a label. */
+function valueAfter(lines: string[], label: RegExp, skip: RegExp[] = []) {
+  const i = lines.findIndex((l) => label.test(l.replace(/\s+/g, "")) && !skip.some((r) => r.test(l.replace(/\s+/g, ""))));
   if (i < 0) return undefined;
   for (const candidate of lines.slice(i + 1, i + 3)) {
-    const v = candidate.replace(/[^A-Z' -]/g, "").replace(/\s+/g, " ").trim();
-    if (v.length >= 2 && !/[A-Z]+ ?\/ ?[A-Z]+/.test(candidate) && !label.test(candidate)) return v;
+    // The next label right away means this value was not read: don't borrow the next field's value.
+    if (anyLabel.test(candidate) || Object.values(labels).some((r) => r.test(candidate.replace(/\s+/g, "")))) return undefined;
+    const v = candidate.replace(/[^A-Z' -]/g, " ").replace(/\s+/g, " ").trim();
+    if (/^[A-Z][A-Z' -]{1,40}$/.test(v) && !/UZBEK|REGION|REPUBLIC/.test(v)) return v;
   }
   return undefined;
 }
 
-/** Labelled fields printed on the Uzbek passport data page (fallback when the MRZ is unreadable). */
+/** "07 05 1990" / "07.05.1990" / "07051990" -> ISO date, if valid. */
+function printedDate(line: string) {
+  const m = /(\d{2})\s*[ .\/-]?\s*(\d{2})\s*[ .\/-]?\s*((?:19|20)\d{2})/.exec(line.replace(/[OQD]/g, "0").replace(/[Il]/g, "1"));
+  if (!m) return undefined;
+  const iso = `${m[3]}-${m[2]}-${m[1]}`;
+  const d = new Date(`${iso}T00:00:00Z`);
+  return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === iso ? iso : undefined;
+}
+
+/** Labelled fields printed on the Uzbek passport data page — the primary source. */
 export function parsePassportVisual(text: string): Partial<PassportData> {
-  const lines = text.toUpperCase().split(/\n/).map((l) => l.trim()).filter(Boolean);
+  const lines = text.toUpperCase().split(/\n/).map((l) => l.trim()).filter(Boolean)
+    // MRZ lines are parsed separately.
+    .filter((l) => !/<{2,}/.test(l));
   const out: Partial<PassportData> = {};
-  const surname = valueAfter(lines, /SURNAME/);
-  const given = valueAfter(lines, /GIVEN\s*NAMES?/);
-  const father = valueAfter(lines, /FATHER/);
+  const surname = valueAfter(lines, labels.surname);
+  const father = valueAfter(lines, labels.father);
+  const given = valueAfter(lines, labels.given, [labels.father]);
   if (surname) out.lastName = surname;
   if (given) out.firstName = given.split(" ")[0];
-  if (father) out.middleName = fixPatronymic(father);
-  const number = /\b([A-Z]{2})\s?(\d{7})\b/.exec(text.toUpperCase());
-  if (number) out.passportNumber = number[1] + number[2];
-  const dobLine = lines.findIndex((l) => /DATE\s*OF\s*BIRTH/.test(l));
-  if (dobLine >= 0) {
-    const m = /(\d{2})[ .\/-]?(\d{2})[ .\/-]?(\d{4})/.exec(lines.slice(dobLine + 1, dobLine + 3).join(" "));
-    if (m) out.birthDate = `${m[3]}-${m[2]}-${m[1]}`;
-  }
+  if (father) out.middleName = fixPatronymic(father.replace(/\s+/g, " "));
+
+  // Passport number: 2 letters + 7 digits, usually next to the "PASPORT RAQAMI / PASSPORT No." label.
+  const number = /\b([A-Z]{2})\s?([0-9OQDIL]{7})\b/.exec(lines.filter((l) => !/\d{6}-\d{7}/.test(l)).join("\n"));
+  if (number) out.passportNumber = number[1] + digits(number[2]);
+
+  // Dates on the page: birth, issue and expiry. The birth date is the one under its label,
+  // otherwise the earliest plausible one (issue/expiry dates are recent).
+  const birthIndex = lines.findIndex((l) => labels.birth.test(l.replace(/\s+/g, "")));
+  const labelled = birthIndex >= 0 ? lines.slice(birthIndex + 1, birthIndex + 3).map(printedDate).find(Boolean) : undefined;
+  const thisYear = new Date().getFullYear();
+  const dates = lines.map(printedDate).filter((d): d is string => !!d).filter((d) => Number(d.slice(0, 4)) <= thisYear - 10).sort();
+  out.birthDate = labelled && Number(labelled.slice(0, 4)) <= thisYear - 10 ? labelled : dates[0];
+
+  // Sex is printed as M / F at the start of the line after the birth date ("M  NAMANGAN REGION").
+  const dobLine = out.birthDate ? lines.findIndex((l) => printedDate(l) === out.birthDate) : -1;
+  const sexLine = dobLine >= 0 ? lines.slice(dobLine + 1, dobLine + 3).find((l) => /^[MF]\b/.test(l)) : undefined;
+  if (sexLine) out.gender = sexLine[0] === "M" ? "Erkak" : "Ayol";
   if (/UZBEKISTAN|\bUZB\b/.test(text.toUpperCase())) out.citizenship = "O‘zbekiston";
   return out;
 }
 
-/** Merge MRZ (authoritative when its check digits pass) with the visual zone. */
+/**
+ * Printed fields first, MRZ as the fallback for anything the page OCR could not read.
+ * The MRZ check digits still verify the printed passport number / birth date; when they
+ * disagree the printed value is kept but marked for checking.
+ */
 export function parsePassport(text: string): PassportData | null {
   const mrz = parseMrz(text);
   const visual = parsePassportVisual(text);
   if (!mrz && !Object.keys(visual).length) return null;
-  const base: PassportData = { ...visual, ...Object.fromEntries(Object.entries(mrz ?? {}).filter(([, v]) => v !== undefined)), verified: mrz?.verified ?? false };
-  // The printed number is larger than the MRZ; accept it when it satisfies the MRZ check digit.
-  if (mrz && !mrz.numberOk && visual.passportNumber && mrz.numberCheck && checkDigit(visual.passportNumber) === mrz.numberCheck) {
-    base.passportNumber = visual.passportNumber;
-    base.numberOk = true;
-    base.verified = !!mrz.birthDateOk;
+  const pick = <K extends keyof PassportData>(k: K) => (visual[k] ?? mrz?.[k]) as PassportData[K];
+  const base: PassportData = {
+    lastName: pick("lastName"),
+    firstName: pick("firstName"),
+    middleName: pick("middleName"),
+    passportNumber: pick("passportNumber"),
+    birthDate: pick("birthDate"),
+    gender: pick("gender"),
+    citizenship: pick("citizenship"),
+    verified: false,
+  };
+
+  // Number: printed one checked against the MRZ check digit; MRZ number only as fallback.
+  if (visual.passportNumber) {
+    base.numberOk = !!mrz?.numberCheck && checkDigit(visual.passportNumber) === mrz.numberCheck;
+  } else {
+    base.numberOk = !!mrz?.numberOk;
   }
-  // Noisy MRZ names (fillers read as letters): trust the printed labelled names instead.
-  if (mrz && !mrz.namesClean && (visual.lastName || visual.firstName)) {
-    base.lastName = visual.lastName ?? base.lastName;
-    base.firstName = visual.firstName ?? base.firstName;
-    base.middleName = visual.middleName ?? base.middleName;
+  // Birth date: printed one confirmed by a check-digit-verified MRZ date.
+  if (visual.birthDate) {
+    base.birthDateOk = !!mrz?.birthDateOk && mrz.birthDate === visual.birthDate;
+  } else {
+    base.birthDateOk = !!mrz?.birthDateOk;
   }
-  // The MRZ truncates long names and can confuse '<' fillers with K; prefer the printed
-  // name when it agrees with the MRZ letters.
-  const mrzLetters = (mrz?.lastName ?? "") + (mrz?.firstName ?? "") + (mrz?.middleName ?? "");
-  const agrees = (v?: string) => !!v && (!mrz || mrzLetters.replace(/\s/g, "").includes(v.replace(/[\s']/g, "").slice(0, 4)));
+  base.verified = !!base.numberOk && !!base.birthDateOk;
+
+  // Names have no check digit: printed names are clean when all three were read; the MRZ
+  // only stands in for missing ones. A difference between the two is flagged for checking.
+  const fromMrz = (["lastName", "firstName", "middleName"] as const).filter((k) => !visual[k] && mrz?.[k]);
+  base.namesClean = fromMrz.length === 0 ? !!(visual.lastName && visual.firstName) : !!mrz?.namesClean;
   const differs = (v?: string, m?: string) => !!v && !!m && v.replace(/[^A-Z]/g, "") !== m.replace(/[^A-Z]/g, "");
-  base.namesDisagree = !!mrz && (differs(visual.lastName, mrz.lastName) || differs(visual.firstName, mrz.firstName) || differs(visual.middleName, mrz.middleName));
-  if (agrees(visual.lastName)) base.lastName = visual.lastName;
-  if (agrees(visual.firstName)) base.firstName = visual.firstName;
-  if (agrees(visual.middleName)) base.middleName = visual.middleName;
+  base.namesDisagree = !!mrz?.namesClean && (differs(visual.lastName, mrz.lastName) || differs(visual.firstName, mrz.firstName) || differs(visual.middleName, mrz.middleName));
+  base.numberCheck = mrz?.numberCheck;
   return base;
 }
 

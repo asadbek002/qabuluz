@@ -248,6 +248,9 @@ export async function readPassport(file: File): Promise<PassportResult> {
     const parsed = parsePassport(text);
     if (parsed && (!best || score(parsed) > score(best))) best = parsed;
     if (best?.verified && best.namesClean) break;
+    // Printed fields come first: when the page OCR already gave every field, the extra passes
+    // (which only look for the MRZ) are not needed.
+    if (best?.namesClean && best.lastName && best.firstName && best.middleName && best.passportNumber && best.birthDate && best.gender) break;
   }
   return { data: best, pdf: isPdf(file) };
 }
