@@ -84,3 +84,4 @@ footer{padding:10px 24px 40px;text-align:center;color:#7a8699;font-size:12px}.su
 .notice.conflict{background:#fffaeb;color:#93370d}.notice.conflict>div{display:flex;flex-direction:column;gap:8px}
 .conflict-options{display:flex;flex-wrap:wrap;gap:8px}.conflict-options button{padding:8px 11px;border:1.5px solid #fec84b;border-radius:10px;background:#fff;color:#7a2e0e;font-size:12px;cursor:pointer}
 .conflict-options button.selected{border-color:#dc6803;background:#fef0c7}
+.ocr-debug{grid-column:1/-1;max-height:420px;overflow:auto;padding:12px;border-radius:10px;background:#101828;color:#d0d5dd;font-size:11px;white-space:pre-wrap;word-break:break-all}

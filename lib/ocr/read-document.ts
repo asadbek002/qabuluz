@@ -5,6 +5,9 @@
 import { linesToText, preloadPpOcr, readLines } from "./ppocr";
 import { parsePassport, parseResidenceCard, type PassportData, type ResidenceCardData } from "./parse";
 
+/** Raw OCR text of the last read per document kind, for the ?ocrdebug=1 view (never sent anywhere). */
+export const lastOcrText: { passport?: string; arc?: string } = {};
+
 /** Start downloading the OCR engine early (e.g. when the documents step opens). */
 export function preloadOcr() {
   preloadPpOcr();
@@ -252,6 +255,7 @@ export async function readPassport(file: File): Promise<PassportResult> {
     // (which only look for the MRZ) are not needed.
     if (best?.namesClean && best.lastName && best.firstName && best.middleName && best.passportNumber && best.birthDate && best.gender) break;
   }
+  lastOcrText.passport = text.trim();
   return { data: best, pdf: isPdf(file) };
 }
 
@@ -262,11 +266,15 @@ function score(p: PassportData) {
 export async function readResidenceCard(file: File): Promise<ResidenceCardData | null> {
   const source = await upright(await toCanvas(file));
   let best: ResidenceCardData | null = null;
+  const texts: string[] = [];
   const attempts = [() => ocr(source), () => ocr(source, 1920), () => ocr(prepare(source, { targetWidth: 1600, binarize: true })), () => ocr(rotate(source, 180))];
   for (const attempt of attempts) {
-    const parsed = parseResidenceCard(await attempt());
+    const text = await attempt();
+    texts.push(text);
+    const parsed = parseResidenceCard(text);
     if (parsed && (!best || Object.keys(parsed).length > Object.keys(best).length)) best = parsed;
     if (best?.arcNumber && best.visaType && best.names) break;
   }
+  lastOcrText.arc = texts.join("\n---\n");
   return best;
 }

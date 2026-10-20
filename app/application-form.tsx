@@ -42,6 +42,8 @@ export default function ApplicationForm() {
   const [ocrStatus, setOcrStatus] = useState<Record<string, OcrState>>({});
   const [ocr, setOcr] = useState<{ passport?: PassportData; arc?: ResidenceCardData }>({});
   const [autoFilled, setAutoFilled] = useState<Record<string, boolean>>({});
+  // ?ocrdebug=1 shows what OCR read (raw text + parsed fields) to diagnose real photos.
+  const [ocrDebug, setOcrDebug] = useState<Record<string, string>>({});
   // Fields the student typed in themselves; document values never overwrite them.
   const edited = useRef<Record<string, boolean>>({});
   const latestOcr = useRef<typeof ocr>({});
@@ -94,14 +96,17 @@ export default function ApplicationForm() {
     if (name !== "passportFile" && name !== "arcFrontFile") return;
     setOcrStatus((old) => ({ ...old, [name]: "reading" }));
     try {
-      const { readPassport, readResidenceCard } = await import("@/lib/ocr/read-document");
+      const { readPassport, readResidenceCard, lastOcrText } = await import("@/lib/ocr/read-document");
+      const debug = typeof location !== "undefined" && new URLSearchParams(location.search).has("ocrdebug");
       if (name === "passportFile") {
         const { data } = await readPassport(file);
+        if (debug) setOcrDebug((old) => ({ ...old, passport: `${lastOcrText.passport}\n\n=== parsed ===\n${JSON.stringify(data, null, 1)}` }));
         applyDocuments({ ...latestOcr.current, passport: data ?? undefined });
         const found = data ? (["lastName", "firstName", "passportNumber", "birthDate"] as const).filter((k) => data[k]).length : 0;
         setOcrStatus((old) => ({ ...old, [name]: !data || found === 0 ? "failed" : data.verified && data.namesClean ? "done" : "partial" }));
       } else {
         const data = await readResidenceCard(file);
+        if (debug) setOcrDebug((old) => ({ ...old, arc: `${lastOcrText.arc}\n\n=== parsed ===\n${JSON.stringify(data, null, 1)}` }));
         applyDocuments({ ...latestOcr.current, arc: data ?? undefined });
         setOcrStatus((old) => ({ ...old, [name]: !data ? "failed" : data.arcNumber && data.visaType && data.names ? "done" : "partial" }));
       }
@@ -269,6 +274,7 @@ export default function ApplicationForm() {
             <UploadField label="Xorijga chiqish pasporti" required name="passportFile" file={files.passportFile} busy={!!processing.passportFile} ocr={ocrStatus.passportFile} onPick={pickFile}/>
             {residence === "yes" && <UploadField label="Koreya ID karta — old tomoni" required name="arcFrontFile" file={files.arcFrontFile} busy={!!processing.arcFrontFile} ocr={ocrStatus.arcFrontFile} onPick={pickFile}/>}
             {residence === "yes" && <UploadField label="Koreya ID karta — orqa tomoni" required name="arcBackFile" file={files.arcBackFile} busy={!!processing.arcBackFile} onPick={pickFile}/>}
+            {Object.entries(ocrDebug).map(([k, v]) => <pre key={k} className="ocr-debug"><b>OCR debug: {k}</b>{"\n"}{v}</pre>)}
             <UploadField label="TOPIK / KIIP / IELTS sertifikati (ixtiyoriy)" name="certificateFile" file={files.certificateFile} busy={!!processing.certificateFile} onPick={pickFile}/>
           </div>
         </>}
