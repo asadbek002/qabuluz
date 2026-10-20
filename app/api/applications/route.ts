@@ -11,7 +11,7 @@ const MAX_FILE_BYTES = 20 * 1024 * 1024;
 const MAX_REQUEST_BYTES = 4 * MAX_FILE_BYTES + 1024 * 1024;
 const MAX_TEXT_LENGTH = 200;
 const fileFields = ["passportFile", "certificateFile", "arcFrontFile", "arcBackFile"];
-const required = ["lastName","firstName","middleName","birthDate","gender","citizenship","phone","telegram","email","address","visaType","previousSchool","graduationDate","admissionType","languageType","languageLevel","passportNumber","universityId","campus","program","track","semester"];
+const required = ["lastName","firstName","middleName","birthDate","gender","citizenship","phone","email","visaType","admissionType","languageType","languageLevel","passportNumber","universityId","campus","program","track","semester"];
 
 const bad = (error: string, status = 400) => NextResponse.json({ error }, { status });
 
@@ -64,11 +64,7 @@ export async function POST(request: Request) {
     }
 
     const data = await request.formData();
-    const get = (key: string) => {
-      const value = String(data.get(key) || "").trim();
-      // Browsers without a month picker submit free text such as "2024.6".
-      return key === "graduationDate" ? value.replace(/[./\s]+/g, "-").replace(/^(\d{4})-(\d)$/, "$1-0$2") : value;
-    };
+    const get = (key: string) => String(data.get(key) || "").trim();
     if (required.some((key) => !get(key))) return bad("Majburiy ma’lumotlar to‘liq kiritilmagan.");
     if ([...required, "arcNumber"].some((key) => get(key).length > MAX_TEXT_LENGTH)) return bad("Ba’zi maydonlar juda uzun.");
 
@@ -77,7 +73,6 @@ export async function POST(request: Request) {
     if (!/^\+8210\d{8}$/.test(get("phone"))) return bad("Telefon raqamini +8210 dan keyin 8 ta raqam bilan kiriting.");
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(get("email"))) return bad("Elektron pochta manzili noto‘g‘ri.");
     if (!validBirthDate(get("birthDate"))) return bad("Tug‘ilgan sana noto‘g‘ri.");
-    if (!/^(19[5-9]\d|20\d\d)-(0[1-9]|1[0-2])$/.test(get("graduationDate"))) return bad("Bitirgan sanani yil va oy ko‘rinishida kiriting.");
     if (!genders.includes(get("gender")) || !cisCountries.includes(get("citizenship")) || !(visaTypes.includes(get("visaType")) || visaCodePattern.test(get("visaType")))) {
       return bad("Shaxsiy ma’lumotlar noto‘g‘ri tanlangan.");
     }
@@ -125,8 +120,8 @@ export async function POST(request: Request) {
       id, applicationNo, createdAt: new Date().toISOString(),
       lastName:get("lastName"), firstName:get("firstName"), middleName:get("middleName"),
       birthDate:get("birthDate"), gender:get("gender"), citizenship:get("citizenship"),
-      phone:get("phone"), telegram:get("telegram"), email:get("email"), address:get("address"),
-      visaType:get("visaType"), previousSchool:get("previousSchool"), graduationDate:get("graduationDate"), admissionType:get("admissionType"),
+      phone:get("phone"), email:get("email"),
+      visaType:get("visaType"), admissionType:get("admissionType"),
       languageType:get("languageType"), languageLevel:get("languageLevel"), passportNumber:get("passportNumber"),
       arcNumber: livesInKorea ? get("arcNumber") : null, universityId:get("universityId"), campus:get("campus"),
       program:get("program"), track:get("track"), semester:get("semester"), documents:JSON.stringify(documents),

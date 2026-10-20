@@ -9,9 +9,7 @@ import { baseAdmissionTypes, certificateLevels, cisCountries, genders, languageT
 const fieldLabels: Record<string, string> = {
   lastName: "Familiya", firstName: "Ism", middleName: "Otchestvo",
   birthDate: "Tug‘ilgan sana", gender: "Jinsi", citizenship: "Fuqaroligi",
-  phone: "Telefon raqami", telegram: "Telegram username", email: "Elektron pochta",
-  address: "Hozirgi yashash manzili", visaType: "Viza turi",
-  previousSchool: "Bitirgan maktab, kollej yoki universitet", graduationDate: "Bitirgan sana",
+  phone: "Telefon raqami", email: "Elektron pochta", visaType: "Viza turi",
   admissionType: "Qabul turi", languageType: "Til sertifikati",
   languageLevel: "Darajasi yoki bali", passportNumber: "Xorijga chiqish pasporti raqami",
   arcNumber: "Koreya ID karta raqami", campus: "Kampus", program: "Yo‘nalish",
@@ -25,7 +23,7 @@ const requiredByStep: Record<number, string[]> = {
   1: [],
   2: ["campus", "program", "track", "semester"],
   3: [],
-  4: ["lastName", "firstName", "middleName", "birthDate", "gender", "citizenship", "phone", "telegram", "email", "address", "visaType", "previousSchool", "graduationDate", "admissionType", "languageType", "languageLevel", "passportNumber"],
+  4: ["lastName", "firstName", "middleName", "birthDate", "gender", "citizenship", "phone", "email", "visaType", "admissionType", "languageType", "languageLevel", "passportNumber"],
   5: [],
 };
 
@@ -298,14 +296,10 @@ export default function ApplicationForm() {
         <h3 className="form-heading">Aloqa ma’lumotlari</h3>
         <div className="form-grid">
           <Input label="Telefon raqami" name="phone" type="tel" placeholder="+821012345678" form={form} update={update}/>
-          <Input label="Telegram username" name="telegram" placeholder="@username" form={form} update={update}/>
           <Input label="Elektron pochta" name="email" type="email" form={form} update={update}/>
-          <Input label="Hozirgi yashash manzili" name="address" form={form} update={update} wide/>
         </div>
-        <h3 className="form-heading">Ta’lim va til ma’lumotlari</h3>
+        <h3 className="form-heading">Til sertifikati</h3>
         <div className="form-grid">
-          <Input label="O‘zbekistonda bitirgan ta’lim muassasasi" name="previousSchool" form={form} update={update} wide/>
-          <Input label="Bitirgan sana (yil va oy)" name="graduationDate" type="month" placeholder="2024-06" form={form} update={update}/>
           <Select label="Til sertifikati" value={form.languageType} onChange={(v) => {update("languageType", v); update("languageLevel", v === "Mavjud emas" ? "Mavjud emas" : "");}} options={languageTypes}/>
           <Select label={form.languageType === "TOPIK" ? "TOPIK darajasi" : form.languageType === "Mavjud emas" ? "Darajasi yoki bali" : `${form.languageType} darajasi yoki bali`} value={form.languageLevel} onChange={(v) => update("languageLevel", v)} options={certificateLevels[form.languageType] || []} placeholder={form.languageType === "Mavjud emas" ? "Mavjud emas" : "Darajani tanlang"} disabled={form.languageType === "Mavjud emas"}/>
         </div>

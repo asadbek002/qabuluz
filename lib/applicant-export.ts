@@ -45,12 +45,12 @@ export function applicantRow(a: Application, index: number, includeUniversity: b
     visaKo[a.visaType] ?? a.visaType,
     a.passportNumber.toUpperCase(),
     countryKo[a.citizenship] ?? a.citizenship,
-    a.previousSchool,
+    a.previousSchool ?? "",
     a.graduationDate ? dots(a.graduationDate) : "",
     includeUniversity && university ? `${university.ko} ${department}` : department,
     phoneKo(a.phone),
     languageScoreKo(a.languageType, a.languageLevel),
-    a.address,
+    a.address ?? "",
     kstDate(a.createdAt),
   ];
 }

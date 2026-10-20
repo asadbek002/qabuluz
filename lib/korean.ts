@@ -42,6 +42,11 @@ function toPhones(word: string): Phone[] {
     else out.push({ kind: "C", c: ch === "c" ? "k" : ch });
     i += 1;
   }
+  // Doubled consonants are written once (Sattarov -> 사타로프); ll/mm/nn stay (Abdulla -> 압둘라, Muhammad -> 무함마드).
+  for (let i = out.length - 1; i > 0; i--) {
+    const cur = out[i], prev = out[i - 1];
+    if (cur.kind === "C" && prev.kind === "C" && cur.c === prev.c && !["l", "m", "n"].includes(cur.c)) out.splice(i, 1);
+  }
   // Word-final -v is voiceless in -ov/-ev surnames (Karimov -> 카리모프).
   const last = out.at(-1);
   if (last?.kind === "C" && last.c === "v") out[out.length - 1] = { kind: "C", c: "f" };
