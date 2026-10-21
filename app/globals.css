@@ -81,3 +81,8 @@ footer{padding:10px 24px 40px;text-align:center;color:#7a8699;font-size:12px}.su
 .conflict-options{display:flex;flex-wrap:wrap;gap:8px}.conflict-options button{padding:8px 11px;border:1.5px solid #fec84b;border-radius:10px;background:#fff;color:#7a2e0e;font-size:12px;cursor:pointer}
 .conflict-options button.selected{border-color:#dc6803;background:#fef0c7}
 .ocr-debug{grid-column:1/-1;max-height:420px;overflow:auto;padding:12px;border-radius:10px;background:#101828;color:#d0d5dd;font-size:11px;white-space:pre-wrap;word-break:break-all}
+.application-item{display:flex;align-items:flex-start;gap:10px}.application-item>input{flex:none;width:18px;height:18px;margin-top:19px;accent-color:var(--blue);cursor:pointer}.application-item>.application-row{flex:1;min-width:0}
+.select-all{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:700;color:#25324a;cursor:pointer}.select-all input{width:16px;height:16px;accent-color:var(--blue)}
+.admin-head-actions>span{font-size:12px;color:#7a8699}
+.export-button{border:0;cursor:pointer}.delete-button{min-height:40px;padding:0 14px;border:1px solid #fecdca;border-radius:10px;background:#fff;color:#b42318;font-size:12px;font-weight:800;cursor:pointer}.delete-button:hover:not(:disabled){background:#fef3f2}.delete-button:disabled{opacity:.45;cursor:not-allowed}
+@media(max-width:600px){.admin-head-actions{flex-wrap:wrap;gap:8px}}

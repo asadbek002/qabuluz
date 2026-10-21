@@ -19,6 +19,8 @@ export async function GET(request: Request) {
   const search = new URL(request.url).searchParams;
   const universityFilter = search.get("university") || "";
   const query = (search.get("q") || "").trim().toLowerCase();
+  // Rows ticked in the admin list; none ticked exports the whole filtered list.
+  const ids = new Set(search.getAll("id"));
   const all = await getDb().select().from(applications).orderBy(asc(applications.createdAt));
   const filtered = all.filter((application) => {
     const university = universities.find((item) => item.id === application.universityId);
@@ -26,7 +28,7 @@ export async function GET(request: Request) {
       application.firstName, application.lastName, application.middleName,
       application.phone, application.applicationNo, university?.ko, university?.uz,
     ].join(" ").toLowerCase();
-    return (!universityFilter || application.universityId === universityFilter) && (!query || searchable.includes(query));
+    return (!universityFilter || application.universityId === universityFilter) && (!query || searchable.includes(query)) && (!ids.size || ids.has(application.id));
   });
 
   const workbook = buildApplicantWorkbook(new Uint8Array(await readFile(templatePath)), filtered, universityFilter || undefined);
