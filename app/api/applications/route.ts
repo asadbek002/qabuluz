@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getDb } from "@/db";
 import { applications } from "@/db/schema";
-import { baseAdmissionTypes, certificateLevels, cisCountries, genders, mastersProgram, nonResident, semesters, universities, visaCodePattern, visaTypes } from "@/lib/universities";
+import { baseAdmissionTypes, certificateLevels, cisCountries, genders, mastersProgram, semesters, universities, visaCodePattern, visaTypes } from "@/lib/universities";
 import { detectFileType, removeApplicationUploads, saveUpload } from "@/lib/uploads";
 import { clientIp, rateLimit } from "@/lib/rate-limit";
 
@@ -88,11 +88,10 @@ export async function POST(request: Request) {
     if (get("languageType") === "Mavjud emas" ? get("languageLevel") !== "Mavjud emas" : !certificateLevels[get("languageType")]?.includes(get("languageLevel"))) {
       return bad("Til sertifikati darajasi noto‘g‘ri tanlangan.");
     }
-    const livesInKorea = get("visaType") !== nonResident;
-    if (livesInKorea && !get("arcNumber")) return bad("Koreya ID karta raqamini kiriting.");
+    if (!get("arcNumber")) return bad("Koreya ID karta raqamini kiriting.");
     const hasFile = (field: string) => { const f = data.get(field); return f instanceof File && f.size > 0; };
     if (!hasFile("passportFile")) return bad("Xorijga chiqish pasporti faylini yuklang.");
-    if (livesInKorea && (!hasFile("arcFrontFile") || !hasFile("arcBackFile"))) return bad("Koreya ID kartaning ikkala tomonini yuklang.");
+    if ((!hasFile("arcFrontFile") || !hasFile("arcBackFile"))) return bad("Koreya ID kartaning ikkala tomonini yuklang.");
 
     // Validate every file before writing anything to disk.
     const pending: { field: string; name: string; bytes: Uint8Array; type: string; ext: string }[] = [];
@@ -123,7 +122,7 @@ export async function POST(request: Request) {
       phone:get("phone"), email:get("email"),
       visaType:get("visaType"), admissionType:get("admissionType"),
       languageType:get("languageType"), languageLevel:get("languageLevel"), passportNumber:get("passportNumber"),
-      arcNumber: livesInKorea ? get("arcNumber") : null, universityId:get("universityId"), campus:get("campus"),
+      arcNumber: get("arcNumber"), universityId:get("universityId"), campus:get("campus"),
       program:get("program"), track:get("track"), semester:get("semester"), documents:JSON.stringify(documents),
       ocrData: sanitizeOcr(String(data.get("ocr") || "")),
     });

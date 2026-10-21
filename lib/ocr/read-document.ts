@@ -333,7 +333,7 @@ export async function readResidenceCard(file: File): Promise<ResidenceCardData |
     texts.push(text);
     const parsed = parseResidenceCard(text);
     if (parsed && (!best || Object.keys(parsed).length > Object.keys(best).length)) best = parsed;
-    if (best?.arcNumber && best.visaType && best.names) break;
+    if (best?.arcNumber && best.visaType) break;
   }
   lastOcrText.arc = texts.join("\n---\n");
   return best;

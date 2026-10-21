@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, ArrowLeft, ArrowRight, Camera, Check, FileText, GraduationCap, Loader2, MapPin, ScanText, ShieldCheck, Upload } from "lucide-react";
 import { compressImage } from "@/lib/compress-image";
 import { reconcile, type MergedField, type PassportData, type ResidenceCardData } from "@/lib/ocr/parse";
-import { baseAdmissionTypes, certificateLevels, cisCountries, genders, languageTypes, mastersProgram, nonResident, semesters, universities, visaCodes } from "@/lib/universities";
+import { baseAdmissionTypes, certificateLevels, cisCountries, genders, languageTypes, mastersProgram, semesters, universities, visaCodes } from "@/lib/universities";
 
 const fieldLabels: Record<string, string> = {
   lastName: "Familiya", firstName: "Ism", middleName: "Otchestvo",
@@ -38,7 +38,6 @@ export default function ApplicationForm() {
   const [form, setForm] = useState<Record<string, string>>({ semester: "2027-yil mart", admissionType: "1-kurs", languageType: "Mavjud emas", languageLevel: "Mavjud emas", phone: "+8210" });
   const [files, setFiles] = useState<Record<string, File | null>>({});
   const [processing, setProcessing] = useState<Record<string, boolean>>({});
-  const [residence, setResidence] = useState<"" | "yes" | "no">("");
   const [ocrStatus, setOcrStatus] = useState<Record<string, OcrState>>({});
   const [ocr, setOcr] = useState<{ passport?: PassportData; arc?: ResidenceCardData }>({});
   const [autoFilled, setAutoFilled] = useState<Record<string, boolean>>({});
@@ -47,8 +46,8 @@ export default function ApplicationForm() {
   // Fields the student typed in themselves; document values never overwrite them.
   const edited = useRef<Record<string, boolean>>({});
   const latestOcr = useRef<typeof ocr>({});
-  // Passport + residence card combined: the card fills or corrects what a poor passport photo missed.
-  const merged = useMemo(() => reconcile(ocr.passport ?? null, residence === "yes" ? ocr.arc ?? null : null), [ocr, residence]);
+  // Name from the passport; ARC number and visa from the card, which also confirms birth date and sex.
+  const merged = useMemo(() => reconcile(ocr.passport ?? null, ocr.arc ?? null), [ocr]);
   const [consent, setConsent] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -83,10 +82,10 @@ export default function ApplicationForm() {
   }
 
   /** Store a document result and fill every field the student has not typed in themselves. */
-  function applyDocuments(next: typeof ocr, livesInKorea = residence === "yes") {
+  function applyDocuments(next: typeof ocr) {
     latestOcr.current = next;
     setOcr(next);
-    const combined = reconcile(next.passport ?? null, livesInKorea ? next.arc ?? null : null);
+    const combined = reconcile(next.passport ?? null, next.arc ?? null);
     const values = Object.fromEntries(Object.entries(combined.values).filter(([k]) => !edited.current[k])) as Record<string, string>;
     if (!Object.keys(values).length) return;
     setForm((old) => ({ ...old, ...values }));
@@ -109,25 +108,11 @@ export default function ApplicationForm() {
         const data = await readResidenceCard(file);
         if (debug) setOcrDebug((old) => ({ ...old, arc: `${lastOcrText.arc}\n\n=== parsed ===\n${JSON.stringify(data, null, 1)}` }));
         applyDocuments({ ...latestOcr.current, arc: data ?? undefined });
-        setOcrStatus((old) => ({ ...old, [name]: !data ? "failed" : data.arcNumber && data.visaType && data.names ? "done" : "partial" }));
+        setOcrStatus((old) => ({ ...old, [name]: !data ? "failed" : data.arcNumber && data.visaType ? "done" : "partial" }));
       }
     } catch (e) {
       console.error(e);
       setOcrStatus((old) => ({ ...old, [name]: "failed" }));
-    }
-  }
-
-  function chooseResidence(value: "yes" | "no") {
-    setResidence(value);
-    setError("");
-    if (value === "no") {
-      setForm((old) => ({ ...old, visaType: nonResident, arcNumber: "" }));
-      setFiles((old) => ({ ...old, arcFrontFile: null, arcBackFile: null }));
-      applyDocuments({ ...latestOcr.current, arc: undefined }, false);
-      setOcrStatus((old) => Object.fromEntries(Object.entries(old).filter(([k]) => k !== "arcFrontFile")));
-    } else {
-      if (form.visaType === nonResident) setForm((old) => ({ ...old, visaType: "" }));
-      if (latestOcr.current.arc) applyDocuments(latestOcr.current, true);
     }
   }
 
@@ -157,9 +142,8 @@ export default function ApplicationForm() {
     const missing = (requiredByStep[step] || []).find((name) => !form[name]?.trim());
     if (missing) return setError(`“${fieldLabels[missing]}” maydonini to‘ldiring.`);
     if (step === 3) {
-      if (!residence) return setError("Koreyada yashaysizmi — javobni tanlang.");
       if (!files.passportFile) return setError("Xorijga chiqish pasportini yuklang.");
-      if (residence === "yes" && (!files.arcFrontFile || !files.arcBackFile)) return setError("Koreya ID kartaning ikkala tomonini yuklang.");
+      if ((!files.arcFrontFile || !files.arcBackFile)) return setError("Koreya ID kartaning ikkala tomonini yuklang.");
       if (Object.values(processing).some(Boolean) || Object.values(ocrStatus).includes("reading")) {
         return setError("Hujjatlar o‘qilmoqda, bir necha soniya kuting.");
       }
@@ -167,7 +151,7 @@ export default function ApplicationForm() {
     if (step === 4 && !/^\+8210\d{8}$/.test(form.phone || "")) {
       return setError("Telefon raqamini +8210 dan keyin 8 ta raqam bilan kiriting.");
     }
-    if (step === 4 && residence === "yes" && !form.arcNumber?.trim()) {
+    if (step === 4 && !form.arcNumber?.trim()) {
       return setError("Koreya ID karta raqamini kiriting.");
     }
     setError("");
@@ -263,28 +247,20 @@ export default function ApplicationForm() {
 
       {step === 3 && <>
         <div className="section-title"><p>3-qadam</p><h2>Hujjatlarni yuklang</h2><span>Hujjatlardagi ma’lumotlar keyingi sahifaga avtomatik to‘ldiriladi.</span></div>
-        <h3 className="form-heading">Koreyada yashaysizmi?</h3>
-        <div className="choice-row">
-          <button type="button" className={residence === "yes" ? "choice selected" : "choice"} onClick={() => chooseResidence("yes")}><strong>Ha, Koreyada yashayman</strong><small>Koreya ID karta (외국인등록증) bor</small></button>
-          <button type="button" className={residence === "no" ? "choice selected" : "choice"} onClick={() => chooseResidence("no")}><strong>Yo‘q</strong><small>Hozir Koreyadan tashqarida yashayman</small></button>
+        <div className="info-box"><Camera size={19}/><span>Hujjatni bir rangli tekis yuzaga (stol, qog‘oz — klaviatura ustida emas) qo‘yib, yorug‘da suratga oling. Passportning pastidagi 2 qator kod (<b>P&lt;UZB…</b>) to‘liq va aniq ko‘rinsin. PDF, JPG, PNG va boshqa rasm formatlari qabul qilinadi.</span></div>
+        <div className="upload-grid">
+          <UploadField label="Xorijga chiqish pasporti" required name="passportFile" file={files.passportFile} busy={!!processing.passportFile} ocr={ocrStatus.passportFile} onPick={pickFile}/>
+          <UploadField label="Koreya ID karta — old tomoni" required name="arcFrontFile" file={files.arcFrontFile} busy={!!processing.arcFrontFile} ocr={ocrStatus.arcFrontFile} onPick={pickFile}/>
+          <UploadField label="Koreya ID karta — orqa tomoni" required name="arcBackFile" file={files.arcBackFile} busy={!!processing.arcBackFile} onPick={pickFile}/>
+          {Object.entries(ocrDebug).map(([k, v]) => <pre key={k} className="ocr-debug"><b>OCR debug: {k}</b>{"\n"}{v}</pre>)}
+          <UploadField label="TOPIK / KIIP / IELTS sertifikati (ixtiyoriy)" name="certificateFile" file={files.certificateFile} busy={!!processing.certificateFile} onPick={pickFile}/>
         </div>
-        {residence && <>
-          <h3 className="form-heading">Hujjatlar</h3>
-          <div className="info-box"><Camera size={19}/><span>Hujjatni bir rangli tekis yuzaga (stol, qog‘oz — klaviatura ustida emas) qo‘yib, yorug‘da suratga oling. Passportning pastidagi 2 qator kod (<b>P&lt;UZB…</b>) to‘liq va aniq ko‘rinsin. PDF, JPG, PNG va boshqa rasm formatlari qabul qilinadi.</span></div>
-          <div className="upload-grid">
-            <UploadField label="Xorijga chiqish pasporti" required name="passportFile" file={files.passportFile} busy={!!processing.passportFile} ocr={ocrStatus.passportFile} onPick={pickFile}/>
-            {residence === "yes" && <UploadField label="Koreya ID karta — old tomoni" required name="arcFrontFile" file={files.arcFrontFile} busy={!!processing.arcFrontFile} ocr={ocrStatus.arcFrontFile} onPick={pickFile}/>}
-            {residence === "yes" && <UploadField label="Koreya ID karta — orqa tomoni" required name="arcBackFile" file={files.arcBackFile} busy={!!processing.arcBackFile} onPick={pickFile}/>}
-            {Object.entries(ocrDebug).map(([k, v]) => <pre key={k} className="ocr-debug"><b>OCR debug: {k}</b>{"\n"}{v}</pre>)}
-            <UploadField label="TOPIK / KIIP / IELTS sertifikati (ixtiyoriy)" name="certificateFile" file={files.certificateFile} busy={!!processing.certificateFile} onPick={pickFile}/>
-          </div>
-        </>}
       </>}
 
       {step === 4 && <>
         <div className="section-title"><p>4-qadam</p><h2>Talaba ma’lumotlari</h2><span>Ma’lumotlarni tekshiring va qolganlarini to‘ldiring.</span></div>
         {Object.values(autoFilled).some(Boolean) && <div className="notice ok"><ScanText size={19}/><span>Yashil maydonlar hujjatdan avtomatik to‘ldirildi{Object.values(fieldState).includes("check") ? ", sariqlarini albatta tekshiring" : ""}. Iltimos, hujjat bilan solishtirib chiqing.</span></div>}
-        {(ocrStatus.passportFile === "failed" || ocrStatus.passportFile === "partial") && <div className="notice warn"><AlertTriangle size={19}/><span>{residence === "yes" && ocr.arc ? "Passport rasmi sifati past — ma’lumotlar ID karta bilan solishtirib to‘ldirildi." : "Passportni to‘liq o‘qib bo‘lmadi."} Sariq va bo‘sh maydonlarni pasportdagidek tekshirib, to‘ldiring.</span></div>}
+        {(ocrStatus.passportFile === "failed" || ocrStatus.passportFile === "partial") && <div className="notice warn"><AlertTriangle size={19}/><span>Passportni to‘liq o‘qib bo‘lmadi. Sariq va bo‘sh maydonlarni pasportdagidek tekshirib, to‘ldiring.</span></div>}
         {Object.entries(merged.conflicts).map(([k, c]) => <div className="notice conflict" key={k}><AlertTriangle size={19}/><div><span>“{fieldLabels[k]}” pasport va ID kartada farq qiladi. To‘g‘risini tanlang:</span><div className="conflict-options">{(["passport", "arc"] as const).map((src) => <button type="button" key={src} className={form[k] === c![src] ? "selected" : ""} onClick={() => update(k, c![src])}>{sourceLabels[src]}: <b>{c![src]}</b></button>)}</div></div></div>)}
         <h3 className="form-heading">Shaxsiy ma’lumotlar</h3>
         <div className="form-grid">
@@ -295,10 +271,8 @@ export default function ApplicationForm() {
           <Select label="Jinsi" value={form.gender} onChange={(v) => update("gender", v)} options={genders} placeholder="Tanlang" auto={fieldState.gender}/>
           <Select label="Fuqaroligi" value={form.citizenship} onChange={(v) => update("citizenship", v)} options={cisCountries} placeholder="Davlatni tanlang" auto={fieldState.citizenship}/>
           <Input label="Xorijga chiqish pasporti raqami" name="passportNumber" placeholder="FA1234567" form={form} update={update} auto={fieldState}/>
-          {residence === "yes" && <>
-            <Input label="Koreya ID karta raqami" name="arcNumber" placeholder="000000-0000000" form={form} update={update} auto={fieldState}/>
-            <Select label="Viza turi" value={form.visaType} onChange={(v) => update("visaType", v)} options={[...new Set([...visaCodes, ...(form.visaType && form.visaType !== nonResident ? [form.visaType] : []), "Boshqa"])]} placeholder="Tanlang" auto={fieldState.visaType}/>
-          </>}
+          <Input label="Koreya ID karta raqami" name="arcNumber" placeholder="000000-0000000" form={form} update={update} auto={fieldState}/>
+          <Select label="Viza turi" value={form.visaType} onChange={(v) => update("visaType", v)} options={[...new Set([...visaCodes, ...(form.visaType ? [form.visaType] : []), "Boshqa"])]} placeholder="Tanlang" auto={fieldState.visaType}/>
         </div>
         <h3 className="form-heading">Aloqa ma’lumotlari</h3>
         <div className="form-grid">
@@ -316,7 +290,7 @@ export default function ApplicationForm() {
         <div className="section-title"><p>5-qadam</p><h2>Tekshirish va yuborish</h2><span>Asosiy ma’lumotlaringizni yana bir bor tekshiring.</span></div>
         <div className="review">
           <Review title="Talaba" rows={[["F.I.Sh.", `${form.lastName} ${form.firstName} ${form.middleName}`], ["Telefon", form.phone], ["Fuqaroligi", form.citizenship], ["Pasport", form.passportNumber]]}/>
-          <Review title="Hujjatlar" rows={[["Pasport", files.passportFile?.name || "—"], ...(residence === "yes" ? [["ID karta (old)", files.arcFrontFile?.name || "—"], ["ID karta (orqa)", files.arcBackFile?.name || "—"]] : []), ["Sertifikat", files.certificateFile?.name || "—"]]}/>
+          <Review title="Hujjatlar" rows={[["Pasport", files.passportFile?.name || "—"], ["ID karta (old)", files.arcFrontFile?.name || "—"], ["ID karta (orqa)", files.arcBackFile?.name || "—"], ["Sertifikat", files.certificateFile?.name || "—"]]}/>
           <Review title="Tanlangan dastur" rows={[["Universitet", `${university.ko} — ${university.uz}`], ["Kampus", form.campus], ["Yo‘nalish", form.program], ["Ta’lim tili", form.track], ["Qabul", `${form.admissionType}, ${form.semester}`]]}/>
         </div>
         <label className="consent"><input type="checkbox" checked={consent} onChange={(e) => setConsent(e.target.checked)}/><span>Kiritilgan ma’lumotlar to‘g‘ri ekanligini tasdiqlayman va shaxsiy ma’lumotlarim qayta ishlanishiga roziman.</span></label>
