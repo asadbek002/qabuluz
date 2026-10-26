@@ -8,6 +8,7 @@ import { applications } from "@/db/schema";
 import { checkAdminPassword, createAdminSession, clearAdminSession, isAdmin } from "@/lib/admin-auth";
 import { removeApplicationUploads } from "@/lib/uploads";
 import { cleanAdminData } from "@/lib/admin-fields";
+import { validateApplicationEdit } from "@/lib/application-edit";
 import { clientIp, rateLimit } from "@/lib/rate-limit";
 
 export async function login(formData: FormData) {
@@ -44,5 +45,17 @@ export async function saveAdminData(formData: FormData) {
   if (!/^[0-9a-f-]{36}$/i.test(id)) return { ok: false };
   const data = cleanAdminData((key) => String(formData.get(key) || ""));
   await getDb().update(applications).set({ adminData: JSON.stringify(data) }).where(eq(applications.id, id));
+  return { ok: true };
+}
+
+/** Save the admin's corrections to an application's personal data and programme. */
+export async function updateApplication(formData: FormData): Promise<{ ok: boolean; error?: string }> {
+  if (!await isAdmin()) return { ok: false, error: "Sessiya tugagan. Qayta kiring." };
+  const id = String(formData.get("id") || "");
+  if (!/^[0-9a-f-]{36}$/i.test(id)) return { ok: false, error: "Ariza topilmadi." };
+  const result = validateApplicationEdit((key) => String(formData.get(key) || ""));
+  if ("error" in result) return { ok: false, error: result.error };
+  const { arcNumber, ...rest } = result.values;
+  await getDb().update(applications).set({ ...rest, arcNumber: arcNumber || null }).where(eq(applications.id, id));
   return { ok: true };
 }

@@ -4,11 +4,12 @@ import { getDb } from "@/db";
 import { applications } from "@/db/schema";
 import { universities } from "@/lib/universities";
 import { isAdmin } from "@/lib/admin-auth";
-import { toHangulName } from "@/lib/korean";
 import { arcMatchesBirthDate } from "@/lib/ocr/parse";
 import { login, logout } from "./actions";
 import { BulkActions } from "./bulk-actions";
 import { AdminDataForm } from "./admin-data-form";
+import { ApplicationEditor } from "./application-editor";
+import { editableKeys, type ApplicationEdit } from "@/lib/application-edit";
 import { parseAdminData } from "@/lib/admin-fields";
 
 export const dynamic = "force-dynamic";
@@ -34,8 +35,8 @@ export default async function AdminPage({ searchParams }: { searchParams: Promis
         {filtered.map((a) => { const u=universities.find(u=>u.id===a.universityId); const docs=parseDocs(a.documents); const checks=ocrChecks(a); const mismatches=checks.filter(c=>c.status==="diff").length; return <div className="application-item" key={a.id}><input type="checkbox" form="bulk" name="id" value={a.id} aria-label={`${a.lastName} ${a.firstName} — tanlash`}/><details className="application-row">
           <summary><div><strong>{a.lastName} {a.firstName} {a.middleName}</strong><span>{a.applicationNo}</span></div><div><strong>{u?.ko || a.universityId}</strong><span>{a.campus} · {a.program}</span></div><div><strong>{a.languageType}: {a.languageLevel}</strong><span>{new Date(a.createdAt).toLocaleDateString("uz-UZ")}{mismatches ? ` · ⚠ ${mismatches} ta farq` : ""}</span></div></summary>
           <div className="application-detail">
-            <Info title="Shaxsiy ma’lumotlar" rows={[["F.I.Sh.",`${a.lastName} ${a.firstName} ${a.middleName}`],["Koreyscha ism",toHangulName(a.lastName, a.firstName, a.middleName)],["Tug‘ilgan sana",a.birthDate],["Jinsi",a.gender],["Fuqaroligi",a.citizenship],["Telefon",a.phone],["E-mail",a.email],...optional([["Telegram",a.telegram],["Manzil",a.address]]),["Viza",a.visaType],["Pasport",a.passportNumber],["ID karta",a.arcNumber || "—"]]}/>
-            <Info title="Ta’lim va dastur" rows={[...optional([["Ta’lim muassasasi",a.previousSchool],["Bitirgan sana",a.graduationDate]]),["Qabul turi",a.admissionType],["Til sertifikati",`${a.languageType}: ${a.languageLevel}`],["Universitet",`${u?.ko} — ${u?.uz}`],["Kampus",a.campus],["Yo‘nalish",a.program],["Ta’lim tili",a.track],["Semestr",a.semester]]}/>
+            <ApplicationEditor id={a.id} initial={Object.fromEntries(editableKeys.map((k) => [k, a[k] ?? ""])) as ApplicationEdit}
+              legacy={{ telegram: a.telegram, address: a.address, previousSchool: a.previousSchool, graduationDate: a.graduationDate }}/>
             <div className="admin-docs"><h3>Hujjat bilan solishtirish</h3>{checks.length ? <table className="ocr-table"><thead><tr><th>Maydon</th><th>Arizada</th><th>Hujjatda (OCR)</th><th></th></tr></thead><tbody>{checks.map(c=><tr key={c.label} className={c.status}><td>{c.label}</td><td>{c.submitted || "—"}</td><td>{c.read || "—"}</td><td>{c.status==="same" ? "✓ mos" : c.status==="diff" ? "⚠ o‘zgartirilgan" : "o‘qilmagan"}</td></tr>)}</tbody></table> : <span>Hujjatdan avtomatik o‘qilmagan (qo‘lda kiritilgan).</span>}</div>
             <AdminDataForm id={a.id} initial={parseAdminData(a.adminData)}/>
             <div className="admin-docs"><h3>Hujjatlar</h3>{Object.keys(docs).length ? Object.entries(docs).map(([field,d])=><a key={field} href={`/api/documents/${a.id}/${field}`} target="_blank" rel="noopener noreferrer">{d.name}</a>) : <span>Hujjat yuklanmagan</span>}</div>
@@ -47,9 +48,6 @@ export default async function AdminPage({ searchParams }: { searchParams: Promis
   </main>;
 }
 
-function Info({title,rows}:{title:string;rows:(string|null)[][]}) {
-  return <div className="admin-info"><h3>{title}</h3>{rows.map(([k,v])=><div key={k!}><span>{k}</span><strong>{v || "—"}</strong></div>)}</div>;
-}
 
 function parseDocs(value: string): Record<string, { name: string }> {
   try { return JSON.parse(value || "{}"); } catch { return {}; }
@@ -83,7 +81,3 @@ function ocrChecks(a: Application): Check[] {
   return out;
 }
 
-/** Fields the form no longer asks for: shown only on older applications that have them. */
-function optional(rows: [string, string | null][]) {
-  return rows.filter(([, v]) => v);
-}
