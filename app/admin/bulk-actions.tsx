@@ -11,11 +11,14 @@ const rowBoxes = () => [...document.querySelectorAll<HTMLInputElement>('input[fo
  */
 export function BulkActions({ q, university, total }: { q?: string; university?: string; total: number }) {
   const [selected, setSelected] = useState(0);
+  const [menu, setMenu] = useState(false);
 
   useEffect(() => {
     const count = () => setSelected(rowBoxes().filter((box) => box.checked).length);
+    const close = (e: MouseEvent) => { if (!(e.target as Element).closest?.(".export-menu")) setMenu(false); };
     document.addEventListener("change", count);
-    return () => document.removeEventListener("change", count);
+    document.addEventListener("click", close);
+    return () => { document.removeEventListener("change", count); document.removeEventListener("click", close); };
   }, []);
 
   function toggleAll(checked: boolean) {
@@ -32,8 +35,18 @@ export function BulkActions({ q, university, total }: { q?: string; university?:
       onClick={(e) => { if (!confirm(`${selected} ta ariza va ularning hujjatlari butunlay o‘chiriladi. Davom etasizmi?`)) e.preventDefault(); }}>
       O‘chirish
     </button>
-    <button type="submit" className="export-button" formMethod="get" formAction="/api/applications/export">
-      {selected ? "Tanlanganlarni Excel’ga" : "Excel yuklab olish"}
-    </button>
+    <div className="export-menu">
+      <button type="button" className="export-button" aria-expanded={menu} onClick={() => setMenu((m) => !m)}>
+        {selected ? "Tanlanganlarni Excel’ga" : "Excel yuklab olish"} ▾
+      </button>
+      {menu && <div className="export-options">
+        <button type="submit" name="format" value="university" formMethod="get" formAction="/api/applications/export" onClick={() => setTimeout(() => setMenu(false))}>
+          <strong>Universitet uchun</strong><small>Ariza shakli (A–Q ustunlar)</small>
+        </button>
+        <button type="submit" name="format" value="template" formMethod="get" formAction="/api/applications/export" onClick={() => setTimeout(() => setMenu(false))}>
+          <strong>Shablon uchun</strong><small>+ vasiy, ID muddati, maktab, baholar…</small>
+        </button>
+      </div>}
+    </div>
   </form>;
 }

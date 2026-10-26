@@ -21,6 +21,8 @@ export async function GET(request: Request) {
   const query = (search.get("q") || "").trim().toLowerCase();
   // Rows ticked in the admin list; none ticked exports the whole filtered list.
   const ids = new Set(search.getAll("id"));
+  // "template" adds the admin-filled columns (보호자연락처 … 성적 유효기간); "university" is the plain form.
+  const forTemplate = search.get("format") === "template";
   const all = await getDb().select().from(applications).orderBy(asc(applications.createdAt));
   const filtered = all.filter((application) => {
     const university = universities.find((item) => item.id === application.universityId);
@@ -31,11 +33,11 @@ export async function GET(request: Request) {
     return (!universityFilter || application.universityId === universityFilter) && (!query || searchable.includes(query)) && (!ids.size || ids.has(application.id));
   });
 
-  const workbook = buildApplicantWorkbook(new Uint8Array(await readFile(templatePath)), filtered, universityFilter || undefined);
+  const workbook = buildApplicantWorkbook(new Uint8Array(await readFile(templatePath)), filtered, universityFilter || undefined, forTemplate);
   const date = new Date().toISOString().slice(0, 10);
   const university = universities.find((u) => u.id === universityFilter);
   // ASCII-only name: browsers may ignore a non-Latin filename* and save the file as "download".
-  const name = `applicants-${university ? university.id + "-" : ""}${date}.xlsx`;
+  const name = `applicants-${forTemplate ? "template-" : ""}${university ? university.id + "-" : ""}${date}.xlsx`;
   return new Response(workbook, {
     headers: {
       "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

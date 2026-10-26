@@ -31,4 +31,6 @@ export const applications = pgTable("applications", {
   documents: text("documents").notNull().default("{}"),
   /** Values read from the uploaded passport / residence card (JSON), to flag manual edits. */
   ocrData: text("ocr_data"),
+  /** Extra template columns the admin fills in on the dashboard (JSON, see lib/admin-fields.ts). */
+  adminData: text("admin_data"),
 });

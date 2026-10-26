@@ -1,12 +1,13 @@
 "use server";
 
 import { headers } from "next/headers";
-import { inArray } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import { redirect } from "next/navigation";
 import { getDb } from "@/db";
 import { applications } from "@/db/schema";
 import { checkAdminPassword, createAdminSession, clearAdminSession, isAdmin } from "@/lib/admin-auth";
 import { removeApplicationUploads } from "@/lib/uploads";
+import { cleanAdminData } from "@/lib/admin-fields";
 import { clientIp, rateLimit } from "@/lib/rate-limit";
 
 export async function login(formData: FormData) {
@@ -34,4 +35,14 @@ export async function deleteApplications(formData: FormData) {
   const back = new URLSearchParams();
   for (const key of ["q", "university"]) if (formData.get(key)) back.set(key, String(formData.get(key)));
   redirect("/admin" + (back.size ? "?" + back.toString() : ""));
+}
+
+/** Save the admin-only template columns of one application. */
+export async function saveAdminData(formData: FormData) {
+  if (!await isAdmin()) return { ok: false };
+  const id = String(formData.get("id") || "");
+  if (!/^[0-9a-f-]{36}$/i.test(id)) return { ok: false };
+  const data = cleanAdminData((key) => String(formData.get(key) || ""));
+  await getDb().update(applications).set({ adminData: JSON.stringify(data) }).where(eq(applications.id, id));
+  return { ok: true };
 }

@@ -8,6 +8,8 @@ import { toHangulName } from "@/lib/korean";
 import { arcMatchesBirthDate } from "@/lib/ocr/parse";
 import { login, logout } from "./actions";
 import { BulkActions } from "./bulk-actions";
+import { AdminDataForm } from "./admin-data-form";
+import { parseAdminData } from "@/lib/admin-fields";
 
 export const dynamic = "force-dynamic";
 
@@ -35,6 +37,7 @@ export default async function AdminPage({ searchParams }: { searchParams: Promis
             <Info title="Shaxsiy ma’lumotlar" rows={[["F.I.Sh.",`${a.lastName} ${a.firstName} ${a.middleName}`],["Koreyscha ism",toHangulName(a.lastName, a.firstName, a.middleName)],["Tug‘ilgan sana",a.birthDate],["Jinsi",a.gender],["Fuqaroligi",a.citizenship],["Telefon",a.phone],["E-mail",a.email],...optional([["Telegram",a.telegram],["Manzil",a.address]]),["Viza",a.visaType],["Pasport",a.passportNumber],["ID karta",a.arcNumber || "—"]]}/>
             <Info title="Ta’lim va dastur" rows={[...optional([["Ta’lim muassasasi",a.previousSchool],["Bitirgan sana",a.graduationDate]]),["Qabul turi",a.admissionType],["Til sertifikati",`${a.languageType}: ${a.languageLevel}`],["Universitet",`${u?.ko} — ${u?.uz}`],["Kampus",a.campus],["Yo‘nalish",a.program],["Ta’lim tili",a.track],["Semestr",a.semester]]}/>
             <div className="admin-docs"><h3>Hujjat bilan solishtirish</h3>{checks.length ? <table className="ocr-table"><thead><tr><th>Maydon</th><th>Arizada</th><th>Hujjatda (OCR)</th><th></th></tr></thead><tbody>{checks.map(c=><tr key={c.label} className={c.status}><td>{c.label}</td><td>{c.submitted || "—"}</td><td>{c.read || "—"}</td><td>{c.status==="same" ? "✓ mos" : c.status==="diff" ? "⚠ o‘zgartirilgan" : "o‘qilmagan"}</td></tr>)}</tbody></table> : <span>Hujjatdan avtomatik o‘qilmagan (qo‘lda kiritilgan).</span>}</div>
+            <AdminDataForm id={a.id} initial={parseAdminData(a.adminData)}/>
             <div className="admin-docs"><h3>Hujjatlar</h3>{Object.keys(docs).length ? Object.entries(docs).map(([field,d])=><a key={field} href={`/api/documents/${a.id}/${field}`} target="_blank" rel="noopener noreferrer">{d.name}</a>) : <span>Hujjat yuklanmagan</span>}</div>
           </div>
         </details></div>})}
