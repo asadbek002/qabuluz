@@ -8,13 +8,16 @@ import { saveAdminData } from "./actions";
 export function AdminDataForm({ id, initial }: { id: string; initial: AdminData }) {
   const [status, setStatus] = useState<"" | "saving" | "saved" | "error">("");
 
-  async function save(formData: FormData) {
+  // onSubmit rather than a form action: React resets a form after its action, which would
+  // blank the fields the admin just saved.
+  async function save(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
     setStatus("saving");
-    const result = await saveAdminData(formData).catch(() => ({ ok: false }));
+    const result = await saveAdminData(new FormData(e.currentTarget)).catch(() => ({ ok: false }));
     setStatus(result.ok ? "saved" : "error");
   }
 
-  return <form className="admin-extra" action={save} onChange={() => status === "saved" && setStatus("")}>
+  return <form className="admin-extra" onSubmit={save} onChange={() => status === "saved" && setStatus("")}>
     <h3>Shablon uchun qo‘shimcha ma’lumotlar</h3>
     <input type="hidden" name="id" value={id}/>
     <div className="admin-extra-grid">

@@ -11,6 +11,7 @@ Koreya universitetlariga hujjat topshirish sayti (Next.js / vinext + PostgreSQL)
 - PDF va rasm hujjatlar: telefon rasmlari brauzerda avtomatik kichraytiriladi (JPEG, max 2200px), PDF 20 MB gacha; fayl turi uning ichidan aniqlanadi.
 - Admin (`/admin`) arizalarni ko‘radi, qidiradi, hujjatlarni ochadi va Excel’ga eksport qiladi.
 - Excel eksport universitetlarning ariza shabloni (`templates/applicants-template.xlsx`) asosida chiqadi: arizalar bakalavr / magistratura / ko‘chirish va til sertifikati bor-yo‘qligiga qarab varaqlarga taqsimlanadi, ism koreys yozuviga avtomatik o‘giriladi. Shablonni almashtirish uchun shu faylni yangisiga almashtiring (ustunlar tartibi A–Q bir xil qolishi kerak). Yo‘nalish, kampus va boshqa qiymatlarning koreyscha nomlari `lib/korean.ts` da.
+- Admin panelda arizalarni belgilab o‘chirish yoki faqat belgilanganlarni eksport qilish mumkin. «Excel yuklab olish» ikki variant beradi: **Universitet uchun** — yuqoridagi shablon (A–Q ustunlar); **Shablon uchun** — shunga qo‘shimcha R–AA ustunlar: 보호자연락처, 관계, 한국 내 연락처, 외국인등록증 유효기간, 학교 구분 (Excel’da ochiladigan ro‘yxat), 성적평균, 전공, 성적, 졸업일자, 성적 유효기간. Bu maydonlarni talaba to‘ldirmaydi — admin har bir ariza ichidagi «Shablon uchun qo‘shimcha ma’lumotlar» bo‘limida kiritadi (`lib/admin-fields.ts`, `applications.admin_data`).
 
 ## Serverga deploy (Ubuntu 22.04/24.04)
 
