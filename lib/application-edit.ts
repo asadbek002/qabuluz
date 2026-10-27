@@ -26,6 +26,14 @@ function validDate(value: string) {
   return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === value && value > "1940-01-01" && value < new Date().toISOString().slice(0, 10);
 }
 
+/** A real calendar date or month ("2024-06-25" / "2024-06"); may lie in the future (expected graduation). */
+function validGraduation(value: string) {
+  const full = /^\d{4}-\d{2}$/.test(value) ? `${value}-01` : value;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(full)) return false;
+  const d = new Date(`${full}T00:00:00Z`);
+  return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === full && full > "1950-01-01" && full < "2040-01-01";
+}
+
 /** Check an edit; returns the cleaned values or the first error (in Uzbek, shown to the admin). */
 export function validateApplicationEdit(get: (key: string) => string): { values: ApplicationEdit } | { error: string } {
   const v = Object.fromEntries(editableKeys.map((k) => [k, get(k).trim()])) as ApplicationEdit;
@@ -36,7 +44,7 @@ export function validateApplicationEdit(get: (key: string) => string): { values:
   }
   if (!validDate(v.birthDate)) return { error: "Tug‘ilgan sana noto‘g‘ri." };
   // Older applications stored the graduation month only ("2024-06").
-  if (v.graduationDate && !/^\d{4}-\d{2}(-\d{2})?$/.test(v.graduationDate)) return { error: "Bitirgan sana 2024-06-25 (yoki 2024-06) ko‘rinishida bo‘lsin." };
+  if (v.graduationDate && !validGraduation(v.graduationDate)) return { error: "Bitirgan sana 2024-06-25 (yoki 2024-06) ko‘rinishida bo‘lsin." };
   if (!genders.includes(v.gender) || !cisCountries.includes(v.citizenship)) return { error: "Jinsi yoki fuqaroligi noto‘g‘ri." };
   if (!visaTypes.includes(v.visaType) && !visaCodePattern.test(v.visaType)) return { error: "Viza turi noto‘g‘ri." };
   if (!/^\+?\d[\d\s-]{6,19}$/.test(v.phone)) return { error: "Telefon raqami noto‘g‘ri." };
