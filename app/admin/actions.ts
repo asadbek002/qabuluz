@@ -8,7 +8,7 @@ import { applications } from "@/db/schema";
 import { checkAdminPassword, createAdminSession, clearAdminSession, isAdmin } from "@/lib/admin-auth";
 import { removeApplicationUploads } from "@/lib/uploads";
 import { cleanAdminData } from "@/lib/admin-fields";
-import { validateApplicationEdit } from "@/lib/application-edit";
+import { optionalKeys, validateApplicationEdit, type EditableKey } from "@/lib/application-edit";
 import { clientIp, rateLimit } from "@/lib/rate-limit";
 
 export async function login(formData: FormData) {
@@ -55,7 +55,7 @@ export async function updateApplication(formData: FormData): Promise<{ ok: boole
   if (!/^[0-9a-f-]{36}$/i.test(id)) return { ok: false, error: "Ariza topilmadi." };
   const result = validateApplicationEdit((key) => String(formData.get(key) || ""));
   if ("error" in result) return { ok: false, error: result.error };
-  const { arcNumber, ...rest } = result.values;
-  await getDb().update(applications).set({ ...rest, arcNumber: arcNumber || null }).where(eq(applications.id, id));
+  const values = Object.fromEntries(Object.entries(result.values).map(([k, v]) => [k, optionalKeys.includes(k as EditableKey) && !v ? null : v]));
+  await getDb().update(applications).set(values).where(eq(applications.id, id));
   return { ok: true };
 }

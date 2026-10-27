@@ -25,6 +25,9 @@ function xml(value: unknown) {
 
 const dots = (isoDate: string) => isoDate.replaceAll("-", ".");
 
+/** Graduation date (column L and 졸업일자); rows saved before it moved to the editor kept it in admin_data. */
+const graduation = (a: Application) => a.graduationDate || parseAdminData(a.adminData).graduationDate || "";
+
 function kstDate(iso: string) {
   const d = new Date(new Date(iso).getTime() + 9 * 60 * 60 * 1000);
   return d.toISOString().slice(0, 10).replaceAll("-", ".");
@@ -47,7 +50,7 @@ export function applicantRow(a: Application, index: number, includeUniversity: b
     a.passportNumber.toUpperCase(),
     countryKo[a.citizenship] ?? a.citizenship,
     a.previousSchool ?? "",
-    a.graduationDate ? dots(a.graduationDate) : "",
+    graduation(a) ? dots(graduation(a)) : "",
     includeUniversity && university ? `${university.ko} ${department}` : department,
     phoneKo(a.phone),
     languageScoreKo(a.languageType, a.languageLevel),
@@ -60,7 +63,8 @@ export function applicantRow(a: Application, index: number, includeUniversity: b
 export function adminRow(a: Application): string[] {
   const data = parseAdminData(a.adminData);
   return adminFields.map((f) => {
-    const v = data[f.key] ?? "";
+    // 졸업일자 is the same date as column L; older rows may still have it only in admin_data.
+    const v = (f.key === "graduationDate" ? graduation(a) : data[f.key]) ?? "";
     return f.type === "date" && v ? dots(v) : v;
   });
 }

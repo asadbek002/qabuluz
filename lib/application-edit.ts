@@ -5,11 +5,13 @@ import { baseAdmissionTypes, certificateLevels, cisCountries, genders, languageT
 
 export const editableKeys = [
   "lastName", "firstName", "middleName", "birthDate", "gender", "citizenship", "phone", "email",
-  "visaType", "passportNumber", "arcNumber",
-  "universityId", "campus", "admissionType", "program", "track", "semester", "languageType", "languageLevel",
+  "visaType", "passportNumber", "arcNumber", "address",
+  "previousSchool", "graduationDate", "universityId", "campus", "admissionType", "program", "track", "semester", "languageType", "languageLevel",
 ] as const;
 
 export type EditableKey = (typeof editableKeys)[number];
+/** May be left empty (no longer asked on the student form; the admin fills them in). */
+export const optionalKeys: EditableKey[] = ["arcNumber", "address", "previousSchool", "graduationDate"];
 export type ApplicationEdit = Record<EditableKey, string>;
 
 /** Admission types a university offers (Magistratura only where it has masters). */
@@ -29,10 +31,12 @@ export function validateApplicationEdit(get: (key: string) => string): { values:
   const v = Object.fromEntries(editableKeys.map((k) => [k, get(k).trim()])) as ApplicationEdit;
   v.passportNumber = v.passportNumber.toUpperCase();
   for (const k of editableKeys) {
-    if (k !== "arcNumber" && !v[k]) return { error: "Barcha maydonlarni to‘ldiring." };
+    if (!optionalKeys.includes(k) && !v[k]) return { error: "Barcha maydonlarni to‘ldiring." };
     if (v[k].length > 200) return { error: "Ba’zi maydonlar juda uzun." };
   }
   if (!validDate(v.birthDate)) return { error: "Tug‘ilgan sana noto‘g‘ri." };
+  // Older applications stored the graduation month only ("2024-06").
+  if (v.graduationDate && !/^\d{4}-\d{2}(-\d{2})?$/.test(v.graduationDate)) return { error: "Bitirgan sana 2024-06-25 (yoki 2024-06) ko‘rinishida bo‘lsin." };
   if (!genders.includes(v.gender) || !cisCountries.includes(v.citizenship)) return { error: "Jinsi yoki fuqaroligi noto‘g‘ri." };
   if (!visaTypes.includes(v.visaType) && !visaCodePattern.test(v.visaType)) return { error: "Viza turi noto‘g‘ri." };
   if (!/^\+?\d[\d\s-]{6,19}$/.test(v.phone)) return { error: "Telefon raqami noto‘g‘ri." };

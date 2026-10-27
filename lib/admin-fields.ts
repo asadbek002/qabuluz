@@ -7,7 +7,11 @@ export type AdminFieldKey =
   | "guardianPhone" | "guardianRelation" | "koreaPhone" | "arcExpiry" | "schoolType"
   | "gpa" | "major" | "grades" | "graduationDate" | "scoreExpiry";
 
-export type AdminField = { key: AdminFieldKey; header: string; label: string; type: "text" | "tel" | "date" | "select"; placeholder?: string };
+export type AdminField = {
+  key: AdminFieldKey; header: string; label: string; type: "text" | "tel" | "date" | "select"; placeholder?: string;
+  /** Filled from the application itself (edited under "Ta’lim va dastur"), not in this form. */
+  fromApplication?: boolean;
+};
 
 /** In Excel column order (R…AA, right after the template's A–Q). */
 export const adminFields: AdminField[] = [
@@ -19,7 +23,7 @@ export const adminFields: AdminField[] = [
   { key: "gpa", header: "성적평균", label: "O‘rtacha baho (GPA)", type: "text", placeholder: "4.2 / 5" },
   { key: "major", header: "전공", label: "Mutaxassislik (전공)", type: "text" },
   { key: "grades", header: "성적", label: "Baholar (성적)", type: "text" },
-  { key: "graduationDate", header: "졸업일자", label: "Bitirgan sana", type: "date" },
+  { key: "graduationDate", header: "졸업일자", label: "Bitirgan sana", type: "date", fromApplication: true },
   { key: "scoreExpiry", header: "성적 유효기간", label: "Sertifikat amal qilish muddati", type: "date" },
 ];
 

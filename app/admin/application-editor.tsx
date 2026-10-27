@@ -7,7 +7,7 @@ import { admissionTypesFor, editableKeys, type ApplicationEdit } from "@/lib/app
 import { certificateLevels, cisCountries, genders, languageTypes, mastersProgram, semesters, universities, visaCodes } from "@/lib/universities";
 import { updateApplication } from "./actions";
 
-type Legacy = { telegram?: string | null; address?: string | null; previousSchool?: string | null; graduationDate?: string | null };
+type Legacy = { telegram?: string | null };
 
 /** "Shaxsiy ma’lumotlar" and "Ta’lim va dastur" blocks, editable by the admin. */
 export function ApplicationEditor({ id, initial, legacy }: { id: string; initial: ApplicationEdit; legacy: Legacy }) {
@@ -57,11 +57,11 @@ export function ApplicationEditor({ id, initial, legacy }: { id: string; initial
     <Info title="Shaxsiy ma’lumotlar" onEdit={() => { setForm(saved); setEditing(true); }} rows={[
       ["F.I.Sh.", `${s.lastName} ${s.firstName} ${s.middleName}`], ["Koreyscha ism", toHangulName(s.lastName, s.firstName, s.middleName)],
       ["Tug‘ilgan sana", s.birthDate], ["Jinsi", s.gender], ["Fuqaroligi", s.citizenship], ["Telefon", s.phone], ["E-mail", s.email],
-      ...present([["Telegram", legacy.telegram], ["Manzil", legacy.address]]),
-      ["Viza", s.visaType], ["Pasport", s.passportNumber], ["ID karta", s.arcNumber || "—"],
+      ...present([["Telegram", legacy.telegram]]),
+      ["Viza", s.visaType], ["Pasport", s.passportNumber], ["ID karta", s.arcNumber || "—"], ["Manzil", s.address],
     ]}/>
     <Info title="Ta’lim va dastur" onEdit={() => { setForm(saved); setEditing(true); }} rows={[
-      ...present([["Ta’lim muassasasi", legacy.previousSchool], ["Bitirgan sana", legacy.graduationDate]]),
+      ["Bitirgan maktab / universitet", s.previousSchool], ["Bitirgan sana", s.graduationDate],
       ["Qabul turi", s.admissionType], ["Til sertifikati", `${s.languageType}: ${s.languageLevel}`], ["Universitet", `${u?.ko} — ${u?.uz}`],
       ["Kampus", s.campus], ["Yo‘nalish", s.program], ["Ta’lim tili", s.track], ["Semestr", s.semester],
     ]}/>
@@ -84,11 +84,14 @@ export function ApplicationEditor({ id, initial, legacy }: { id: string; initial
         {text("birthDate", "Tug‘ilgan sana", "date")}{select("gender", "Jinsi", genders)}{select("citizenship", "Fuqaroligi", cisCountries)}
         {text("phone", "Telefon", "tel")}{text("email", "E-mail", "email")}
         {select("visaType", "Viza", [...visaCodes, "Boshqa"])}{text("passportNumber", "Pasport raqami")}{text("arcNumber", "ID karta raqami")}
+        <label className="wide"><span>Manzil (주소)</span><input value={form.address ?? ""} onChange={(e) => set("address", e.target.value)} maxLength={200}/></label>
       </div>
     </div>
     <div className="admin-edit-section">
       <h3>Ta’lim va dastur</h3>
       <div className="admin-extra-grid">
+        <label className="wide"><span>Bitirgan maktab / universitet (고등학교 / 대학교 이름)</span><input value={form.previousSchool ?? ""} onChange={(e) => set("previousSchool", e.target.value)} maxLength={200}/></label>
+        <label><span>Bitirgan sana (졸업일자)</span><input value={form.graduationDate ?? ""} placeholder="2024-06-25" onChange={(e) => set("graduationDate", e.target.value)} maxLength={10}/></label>
         {select("universityId", "Universitet", universities.map((x) => x.id), Object.fromEntries(universities.map((x) => [x.id, `${x.ko} — ${x.uz}`])))}
         {select("campus", "Kampus", university?.campuses ?? [])}
         {select("admissionType", "Qabul turi", admissionTypesFor(form.universityId))}

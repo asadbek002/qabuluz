@@ -21,7 +21,7 @@ export function AdminDataForm({ id, initial }: { id: string; initial: AdminData 
     <h3>Shablon uchun qo‘shimcha ma’lumotlar</h3>
     <input type="hidden" name="id" value={id}/>
     <div className="admin-extra-grid">
-      {adminFields.map((f) => <label key={f.key}>
+      {adminFields.filter((f) => !f.fromApplication).map((f) => <label key={f.key}>
         <span>{f.label} <small>{f.header}</small></span>
         {f.type === "select"
           ? <select name={f.key} defaultValue={initial[f.key] ?? ""}><option value="">—</option>{schoolTypes.map((t) => <option key={t}>{t}</option>)}</select>
