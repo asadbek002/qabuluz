@@ -34,7 +34,7 @@ export async function deleteApplications(formData: FormData) {
     for (const id of ids) await removeApplicationUploads(id).catch((error) => console.error(error));
   }
   const back = new URLSearchParams();
-  for (const key of ["q", "university"]) if (formData.get(key)) back.set(key, String(formData.get(key)));
+  for (const key of ["q", "university", "status"]) if (formData.get(key)) back.set(key, String(formData.get(key)));
   redirect("/admin" + (back.size ? "?" + back.toString() : ""));
 }
 

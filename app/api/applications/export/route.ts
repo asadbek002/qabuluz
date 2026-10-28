@@ -7,6 +7,7 @@ import { applications } from "@/db/schema";
 import { isAdmin } from "@/lib/admin-auth";
 import { buildApplicantWorkbook } from "@/lib/applicant-export";
 import { universities } from "@/lib/universities";
+import { completeness } from "@/lib/completeness";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -21,6 +22,7 @@ export async function GET(request: Request) {
   const query = (search.get("q") || "").trim().toLowerCase();
   // Rows ticked in the admin list; none ticked exports the whole filtered list.
   const ids = new Set(search.getAll("id"));
+  const statusFilter = search.get("status") || "";
   // "template" adds the admin-filled columns (보호자연락처 … 성적 유효기간); "university" is the plain form.
   const forTemplate = search.get("format") === "template";
   const all = await getDb().select().from(applications).orderBy(asc(applications.createdAt));
@@ -30,7 +32,7 @@ export async function GET(request: Request) {
       application.firstName, application.lastName, application.middleName,
       application.phone, application.applicationNo, university?.ko, university?.uz,
     ].join(" ").toLowerCase();
-    return (!universityFilter || application.universityId === universityFilter) && (!query || searchable.includes(query)) && (!ids.size || ids.has(application.id));
+    return (!universityFilter || application.universityId === universityFilter) && (!query || searchable.includes(query)) && (!ids.size || ids.has(application.id)) && (!statusFilter || completeness(application).status === statusFilter);
   });
 
   const workbook = buildApplicantWorkbook(new Uint8Array(await readFile(templatePath)), filtered, universityFilter || undefined, forTemplate);

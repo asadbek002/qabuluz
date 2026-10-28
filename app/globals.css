@@ -102,3 +102,15 @@ footer{padding:10px 24px 40px;text-align:center;color:#7a8699;font-size:12px}.su
 .admin-edit input,.admin-edit select{height:38px;padding:0 10px;border:1px solid #d7deea;border-radius:9px;background:#fff;font-size:13px;min-width:0}.admin-edit input:disabled{background:#f4f6f9;color:#7a8699}
 .admin-extra-actions button.ghost{background:#fff;color:#25324a;border:1px solid #d7deea}
 @media(max-width:600px){.admin-edit label.wide{grid-column:auto}}
+.application-row summary{grid-template-columns:1.1fr 1.2fr .8fr .7fr}
+.completion strong{display:flex!important;align-items:baseline;gap:6px}.completion em{font-style:normal;font-size:10px;font-weight:800;padding:2px 7px;border-radius:999px}
+.completion .bar{display:block!important;height:6px;margin-top:8px!important;border-radius:99px;background:#eef1f5;overflow:hidden}.completion .bar i{display:block;height:100%;border-radius:99px}
+.completion.full em{background:#ecfdf3;color:#067647}.completion.full .bar i{background:#12b76a}
+.completion.partial em{background:#fffaeb;color:#b54708}.completion.partial .bar i{background:#f79009}
+.completion.empty em{background:#fef3f2;color:#b42318}.completion.empty .bar i{background:#f04438}
+.completion-detail{grid-column:1/-1;padding:11px 14px;border-radius:10px;font-size:12px;line-height:1.5}.completion-detail.full{background:#ecfdf3;color:#05603a}.completion-detail.partial{background:#fffaeb;color:#93370d}.completion-detail.empty{background:#fef3f2;color:#912018}
+.status-tabs{display:flex;flex-wrap:wrap;gap:8px;margin:-4px 0 16px}.status-tabs a{display:inline-flex;align-items:center;gap:6px;padding:7px 12px;border:1px solid #d7deea;border-radius:999px;background:#fff;color:#4a5568;text-decoration:none;font-size:12px;font-weight:700}
+.status-tabs a b{font-size:11px;padding:1px 7px;border-radius:99px;background:#eef1f5}.status-tabs a.active{border-color:var(--blue);color:var(--blue);background:#f4f8ff}
+.status-tabs a.empty b{background:#fef3f2;color:#b42318}.status-tabs a.partial b{background:#fffaeb;color:#b54708}.status-tabs a.full b{background:#ecfdf3;color:#067647}
+@media(max-width:900px){.application-row summary{grid-template-columns:1fr 1fr}.application-row summary>div:nth-child(3){display:none}.application-row summary>div.completion{display:block}}
+@media(max-width:600px){.application-row summary{grid-template-columns:1fr}}

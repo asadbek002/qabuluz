@@ -9,7 +9,7 @@ const rowBoxes = () => [...document.querySelectorAll<HTMLInputElement>('input[fo
  * Export / delete toolbar for the admin list. Row checkboxes live in the server-rendered list
  * and join this form through form="bulk"; nothing ticked exports the whole filtered list.
  */
-export function BulkActions({ q, university, total }: { q?: string; university?: string; total: number }) {
+export function BulkActions({ q, university, status, total }: { q?: string; university?: string; status?: string; total: number }) {
   const [selected, setSelected] = useState(0);
   const [menu, setMenu] = useState(false);
 
@@ -29,6 +29,7 @@ export function BulkActions({ q, university, total }: { q?: string; university?:
   return <form id="bulk" className="admin-head-actions">
     {q && <input type="hidden" name="q" value={q}/>}
     {university && <input type="hidden" name="university" value={university}/>}
+    {status && <input type="hidden" name="status" value={status}/>}
     <label className="select-all"><input type="checkbox" checked={total > 0 && selected === total} onChange={(e) => toggleAll(e.target.checked)}/> Hammasi</label>
     <span>{selected ? `${selected} / ${total} ta tanlandi` : `${total} ta ariza`}</span>
     <button type="submit" className="delete-button" disabled={!selected} formAction={deleteApplications}
