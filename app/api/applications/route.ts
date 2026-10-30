@@ -3,7 +3,8 @@ import { getDb } from "@/db";
 import { applications } from "@/db/schema";
 import { baseAdmissionTypes, certificateLevels, cisCountries, genders, mastersProgram, semesters, universities, visaCodePattern, visaTypes } from "@/lib/universities";
 import { detectFileType, removeApplicationUploads, saveUpload } from "@/lib/uploads";
-import { clientIp, rateLimit } from "@/lib/rate-limit";
+import { clientIp, limitReached, rateLimit } from "@/lib/rate-limit";
+import { isAdmin } from "@/lib/admin-auth";
 
 export const runtime = "nodejs";
 
@@ -52,12 +53,21 @@ function validBirthDate(value: string) {
   return year >= 1950 && date.getTime() < Date.now();
 }
 
+const HOUR = 60 * 60 * 1000;
+const HOURLY_APPLICATIONS = 20;
+const HOURLY_ATTEMPTS = 60;
+
 export async function POST(request: Request) {
   const id = crypto.randomUUID();
   let savedFiles = false;
   try {
-    if (!rateLimit(`apply:${clientIp(request.headers)}`, 10, 60 * 60 * 1000)) {
-      return bad("Juda ko‘p urinish. Birozdan so‘ng qayta urinib ko‘ring.", 429);
+    // Limits per IP: saved applications, and all attempts (failed ones too) to protect the server.
+    // Many students can share one IP (an office, a dormitory, mobile carrier NAT), so failed
+    // attempts do not use up the application limit, and a logged-in admin is never limited.
+    const ip = clientIp(request.headers);
+    const admin = await isAdmin();
+    if (!admin && (limitReached(`apply-ok:${ip}`, HOURLY_APPLICATIONS) || !rateLimit(`apply:${ip}`, HOURLY_ATTEMPTS, HOUR))) {
+      return bad("Bu internet tarmog‘idan juda ko‘p ariza yuborildi. 1 soatdan so‘ng qayta urinib ko‘ring yoki boshqa tarmoqdan (masalan, mobil internet) yuboring.", 429);
     }
     if (Number(request.headers.get("content-length") || 0) > MAX_REQUEST_BYTES) {
       return bad("Yuklangan fayllar hajmi juda katta.", 413);
@@ -126,6 +136,7 @@ export async function POST(request: Request) {
       program:get("program"), track:get("track"), semester:get("semester"), documents:JSON.stringify(documents),
       ocrData: sanitizeOcr(String(data.get("ocr") || "")),
     });
+    if (!admin) rateLimit(`apply-ok:${ip}`, Number.MAX_SAFE_INTEGER, HOUR);
     return NextResponse.json({ ok: true, applicationNo });
   } catch (error) {
     console.error(error);
