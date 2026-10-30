@@ -21,12 +21,6 @@ export function rateLimit(key: string, limit: number, windowMs: number) {
   return bucket.count <= limit;
 }
 
-/** Whether the key already used up `limit` hits in its current window (does not count a hit). */
-export function limitReached(key: string, limit: number) {
-  const bucket = buckets.get(key);
-  return !!bucket && bucket.resetAt > Date.now() && bucket.count >= limit;
-}
-
 let warnedNoIp = false;
 
 /** Client IP as forwarded by the reverse proxy (Nginx sets X-Real-IP). */
