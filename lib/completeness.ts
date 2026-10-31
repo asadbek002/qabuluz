@@ -24,3 +24,11 @@ export function completeness(a: Application) {
   const status: CompletionStatus = !missing.length ? "full" : filled <= (a.arcNumber ? 1 : 0) ? "empty" : "partial";
   return { filled, total: fields.length, percent, missing, status };
 }
+
+/** List filter: "done" = sent to the university; the completion tabs only show applications still in work. */
+export type ListStatus = CompletionStatus | "done";
+export const listStatusLabels: Record<ListStatus, string> = { ...statusLabels, done: "Done" };
+
+export function listStatus(a: Application, status = completeness(a).status): ListStatus {
+  return a.doneAt ? "done" : status;
+}

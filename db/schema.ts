@@ -33,4 +33,6 @@ export const applications = pgTable("applications", {
   ocrData: text("ocr_data"),
   /** Extra template columns the admin fills in on the dashboard (JSON, see lib/admin-fields.ts). */
   adminData: text("admin_data"),
+  /** When the admin marked the application as sent to the university ("Done"); null = still in work. */
+  doneAt: text("done_at"),
 });

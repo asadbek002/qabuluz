@@ -114,3 +114,7 @@ footer{padding:10px 24px 40px;text-align:center;color:#7a8699;font-size:12px}.su
 .status-tabs a.empty b{background:#fef3f2;color:#b42318}.status-tabs a.partial b{background:#fffaeb;color:#b54708}.status-tabs a.full b{background:#ecfdf3;color:#067647}
 @media(max-width:900px){.application-row summary{grid-template-columns:1fr 1fr}.application-row summary>div:nth-child(3){display:none}.application-row summary>div.completion{display:block}}
 @media(max-width:600px){.application-row summary{grid-template-columns:1fr}}
+.done-button{min-height:40px;padding:0 14px;border:1px solid #b2ddff;border-radius:10px;background:#eff8ff;color:#175cd3;font-size:12px;font-weight:800;cursor:pointer}.done-button:hover:not(:disabled){background:#d1e9ff}.done-button:disabled{opacity:.45;cursor:not-allowed}
+.done-button.undo{border-color:#d7deea;background:#fff;color:#4a5568}
+.completion em.done-badge{background:#eff8ff;color:#175cd3}
+.status-tabs a.done b{background:#eff8ff;color:#175cd3}

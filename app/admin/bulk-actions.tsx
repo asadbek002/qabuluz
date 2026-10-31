@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { deleteApplications } from "./actions";
+import { deleteApplications, setApplicationsDone } from "./actions";
 
 const rowBoxes = () => [...document.querySelectorAll<HTMLInputElement>('input[form="bulk"][name="id"]')];
 
@@ -32,6 +32,10 @@ export function BulkActions({ q, university, status, total }: { q?: string; univ
     {status && <input type="hidden" name="status" value={status}/>}
     <label className="select-all"><input type="checkbox" checked={total > 0 && selected === total} onChange={(e) => toggleAll(e.target.checked)}/> Hammasi</label>
     <span>{selected ? `${selected} / ${total} ta tanlandi` : `${total} ta ariza`}</span>
+    {status === "done"
+      ? <button type="submit" className="done-button undo" name="done" value="0" disabled={!selected} formAction={setApplicationsDone}>Done’dan qaytarish</button>
+      : <button type="submit" className="done-button" name="done" value="1" disabled={!selected} formAction={setApplicationsDone}
+        title="Universitetga ro‘yxati yuborilgan talabalar">✓ Done ga o‘tkazish</button>}
     <button type="submit" className="delete-button" disabled={!selected} formAction={deleteApplications}
       onClick={(e) => { if (!confirm(`${selected} ta ariza va ularning hujjatlari butunlay o‘chiriladi. Davom etasizmi?`)) e.preventDefault(); }}>
       O‘chirish

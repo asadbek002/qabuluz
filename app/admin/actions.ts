@@ -38,6 +38,17 @@ export async function deleteApplications(formData: FormData) {
   redirect("/admin" + (back.size ? "?" + back.toString() : ""));
 }
 
+/** Mark the ticked applications as sent to the university ("Done"), or move them back to work. */
+export async function setApplicationsDone(formData: FormData) {
+  if (!await isAdmin()) redirect("/admin");
+  const ids = formData.getAll("id").map(String).filter((id) => /^[0-9a-f-]{36}$/i.test(id));
+  const done = formData.get("done") === "1";
+  if (ids.length) await getDb().update(applications).set({ doneAt: done ? new Date().toISOString() : null }).where(inArray(applications.id, ids));
+  const back = new URLSearchParams();
+  for (const key of ["q", "university", "status"]) if (formData.get(key)) back.set(key, String(formData.get(key)));
+  redirect("/admin" + (back.size ? "?" + back.toString() : ""));
+}
+
 /** Save the admin-only template columns of one application. */
 export async function saveAdminData(formData: FormData) {
   if (!await isAdmin()) return { ok: false };

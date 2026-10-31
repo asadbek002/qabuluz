@@ -36,6 +36,13 @@
       "when": 1793030661127,
       "tag": "0004_nasty_next_avengers",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1793408514201,
+      "tag": "0005_powerful_solo",
+      "breakpoints": true
     }
   ]
 }

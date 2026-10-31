@@ -11,7 +11,7 @@ import { AdminDataForm } from "./admin-data-form";
 import { ApplicationEditor } from "./application-editor";
 import { editableKeys, type ApplicationEdit } from "@/lib/application-edit";
 import { parseAdminData } from "@/lib/admin-fields";
-import { completeness, statusLabels, type CompletionStatus } from "@/lib/completeness";
+import { completeness, listStatus, listStatusLabels, statusLabels, type ListStatus } from "@/lib/completeness";
 
 export const dynamic = "force-dynamic";
 
@@ -27,11 +27,11 @@ export default async function AdminPage({ searchParams }: { searchParams: Promis
 
   const all = await getDb().select().from(applications).orderBy(desc(applications.createdAt));
   const matching = all.filter((a) => (!params.university || a.universityId === params.university) && (!params.q || `${a.firstName} ${a.lastName} ${a.middleName} ${a.phone} ${a.applicationNo}`.toLowerCase().includes(params.q.toLowerCase())))
-    .map((a) => ({ a, done: completeness(a) }));
-  const counts = Object.fromEntries((["full", "partial", "empty"] as const).map((s) => [s, matching.filter((m) => m.done.status === s).length])) as Record<CompletionStatus, number>;
-  const status = params.status && params.status in statusLabels ? params.status as CompletionStatus : undefined;
-  const filtered = matching.filter((m) => !status || m.done.status === status);
-  const statusHref = (s?: CompletionStatus) => {
+    .map((a) => { const done = completeness(a); return { a, done, list: listStatus(a, done.status) }; });
+  const counts = Object.fromEntries((["full", "partial", "empty", "done"] as const).map((s) => [s, matching.filter((m) => m.list === s).length])) as Record<ListStatus, number>;
+  const status = params.status && params.status in listStatusLabels ? params.status as ListStatus : undefined;
+  const filtered = matching.filter((m) => !status || m.list === status);
+  const statusHref = (s?: ListStatus) => {
     const q = new URLSearchParams();
     if (params.q) q.set("q", params.q);
     if (params.university) q.set("university", params.university);
@@ -45,11 +45,11 @@ export default async function AdminPage({ searchParams }: { searchParams: Promis
       <form className="filters"><input name="q" defaultValue={params.q} placeholder="Ism, telefon yoki ariza raqami"/><select name="university" defaultValue={params.university || ""}><option value="">Barcha universitetlar</option>{universities.map(u=><option value={u.id} key={u.id}>{u.ko} — {u.uz}</option>)}</select>{status && <input type="hidden" name="status" value={status}/>}<button>Qidirish</button></form>
       <nav className="status-tabs" aria-label="To‘ldirilganlik holati">
         <a href={statusHref()} className={!status ? "active" : ""}>Hammasi <b>{matching.length}</b></a>
-        {(["empty", "partial", "full"] as const).map((s) => <a key={s} href={statusHref(s)} className={`${s}${status === s ? " active" : ""}`}>{statusLabels[s]} <b>{counts[s]}</b></a>)}
+        {(["empty", "partial", "full", "done"] as const).map((s) => <a key={s} href={statusHref(s)} className={`${s}${status === s ? " active" : ""}`}>{listStatusLabels[s]} <b>{counts[s]}</b></a>)}
       </nav>
       <div className="application-list">
-        {filtered.map(({ a, done }) => { const u=universities.find(u=>u.id===a.universityId); const docs=parseDocs(a.documents); const checks=ocrChecks(a); const mismatches=checks.filter(c=>c.status==="diff").length; return <div className="application-item" key={a.id}><input type="checkbox" form="bulk" name="id" value={a.id} aria-label={`${a.lastName} ${a.firstName} — tanlash`}/><details className="application-row">
-          <summary><div><strong>{a.lastName} {a.firstName} {a.middleName}</strong><span>{a.applicationNo}</span></div><div><strong>{u?.ko || a.universityId}</strong><span>{a.campus} · {a.program}</span></div><div><strong>{a.languageType}: {a.languageLevel}</strong><span>{new Date(a.createdAt).toLocaleDateString("uz-UZ")}{mismatches ? ` · ⚠ ${mismatches} ta farq` : ""}</span></div><div className={`completion ${done.status}`} title={done.missing.length ? `Yetishmayapti: ${done.missing.join(", ")}` : "Hammasi to‘ldirilgan"}><strong>{done.percent}% <em>{statusLabels[done.status]}</em></strong><span className="bar"><i style={{ width: `${done.percent}%` }}/></span></div></summary>
+        {filtered.map(({ a, done, list }) => { const u=universities.find(u=>u.id===a.universityId); const docs=parseDocs(a.documents); const checks=ocrChecks(a); const mismatches=checks.filter(c=>c.status==="diff").length; return <div className="application-item" key={a.id}><input type="checkbox" form="bulk" name="id" value={a.id} aria-label={`${a.lastName} ${a.firstName} — tanlash`}/><details className="application-row">
+          <summary><div><strong>{a.lastName} {a.firstName} {a.middleName}</strong><span>{a.applicationNo}</span></div><div><strong>{u?.ko || a.universityId}</strong><span>{a.campus} · {a.program}</span></div><div><strong>{a.languageType}: {a.languageLevel}</strong><span>{new Date(a.createdAt).toLocaleDateString("uz-UZ")}{mismatches ? ` · ⚠ ${mismatches} ta farq` : ""}</span></div><div className={`completion ${done.status}`} title={done.missing.length ? `Yetishmayapti: ${done.missing.join(", ")}` : "Hammasi to‘ldirilgan"}><strong>{done.percent}% <em>{statusLabels[done.status]}</em>{list === "done" && <em className="done-badge" title={`Universitetga o‘tkazilgan: ${a.doneAt?.slice(0, 10)}`}>✓ Done</em>}</strong><span className="bar"><i style={{ width: `${done.percent}%` }}/></span></div></summary>
           <div className="application-detail">
             <div className={`completion-detail ${done.status}`}>{done.missing.length ? <><b>{done.filled}/{done.total} to‘ldirilgan.</b> Yetishmayapti: {done.missing.join(", ")}</> : <b>✓ Excel uchun barcha ma’lumotlar to‘ldirilgan.</b>}</div>
             <ApplicationEditor id={a.id} legacy={{ telegram: a.telegram }}

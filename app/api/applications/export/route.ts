@@ -7,7 +7,7 @@ import { applications } from "@/db/schema";
 import { isAdmin } from "@/lib/admin-auth";
 import { buildApplicantWorkbook } from "@/lib/applicant-export";
 import { universities } from "@/lib/universities";
-import { completeness } from "@/lib/completeness";
+import { listStatus } from "@/lib/completeness";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -32,7 +32,7 @@ export async function GET(request: Request) {
       application.firstName, application.lastName, application.middleName,
       application.phone, application.applicationNo, university?.ko, university?.uz,
     ].join(" ").toLowerCase();
-    return (!universityFilter || application.universityId === universityFilter) && (!query || searchable.includes(query)) && (!ids.size || ids.has(application.id)) && (!statusFilter || completeness(application).status === statusFilter);
+    return (!universityFilter || application.universityId === universityFilter) && (!query || searchable.includes(query)) && (!ids.size || ids.has(application.id)) && (!statusFilter || listStatus(application) === statusFilter);
   });
 
   const workbook = buildApplicantWorkbook(new Uint8Array(await readFile(templatePath)), filtered, universityFilter || undefined, forTemplate);
