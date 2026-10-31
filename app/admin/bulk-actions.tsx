@@ -51,6 +51,9 @@ export function BulkActions({ q, university, status, total }: { q?: string; univ
         <button type="submit" name="format" value="template" formMethod="get" formAction="/api/applications/export" onClick={() => setTimeout(() => setMenu(false))}>
           <strong>Shablon uchun</strong><small>+ vasiy, ID muddati, maktab, baholar…</small>
         </button>
+        <button type="submit" name="format" value="missing" formMethod="get" formAction="/api/applications/export" onClick={() => setTimeout(() => setMenu(false))}>
+          <strong>Chala to‘ldirilganlar ro‘yxati</strong><small>Kimda qaysi ma’lumot yetishmayapti</small>
+        </button>
       </div>}
     </div>
   </form>;

@@ -8,6 +8,7 @@ import { isAdmin } from "@/lib/admin-auth";
 import { buildApplicantWorkbook } from "@/lib/applicant-export";
 import { universities } from "@/lib/universities";
 import { listStatus } from "@/lib/completeness";
+import { buildMissingReport } from "@/lib/missing-report";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -24,7 +25,8 @@ export async function GET(request: Request) {
   const ids = new Set(search.getAll("id"));
   const statusFilter = search.get("status") || "";
   // "template" adds the admin-filled columns (보호자연락처 … 성적 유효기간); "university" is the plain form.
-  const forTemplate = search.get("format") === "template";
+  const format = search.get("format");
+  const forTemplate = format === "template";
   const all = await getDb().select().from(applications).orderBy(asc(applications.createdAt));
   const filtered = all.filter((application) => {
     const university = universities.find((item) => item.id === application.universityId);
@@ -35,11 +37,15 @@ export async function GET(request: Request) {
     return (!universityFilter || application.universityId === universityFilter) && (!query || searchable.includes(query)) && (!ids.size || ids.has(application.id)) && (!statusFilter || listStatus(application) === statusFilter);
   });
 
-  const workbook = buildApplicantWorkbook(new Uint8Array(await readFile(templatePath)), filtered, universityFilter || undefined, forTemplate);
+  // "missing": to-do list of incomplete applications and their missing fields, not the template.
+  const workbook = format === "missing"
+    ? buildMissingReport(filtered)
+    : buildApplicantWorkbook(new Uint8Array(await readFile(templatePath)), filtered, universityFilter || undefined, forTemplate);
   const date = new Date().toISOString().slice(0, 10);
   const university = universities.find((u) => u.id === universityFilter);
   // ASCII-only name: browsers may ignore a non-Latin filename* and save the file as "download".
-  const name = `applicants-${forTemplate ? "template-" : ""}${university ? university.id + "-" : ""}${date}.xlsx`;
+  const kind = format === "missing" ? "missing-" : forTemplate ? "template-" : "";
+  const name = `applicants-${kind}${university ? university.id + "-" : ""}${date}.xlsx`;
   return new Response(workbook, {
     headers: {
       "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
