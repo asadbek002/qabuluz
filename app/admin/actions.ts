@@ -38,11 +38,21 @@ export async function deleteApplications(formData: FormData) {
   redirect("/admin" + (back.size ? "?" + back.toString() : ""));
 }
 
-/** Mark the ticked applications as sent to the university ("Done"), or move them back to work. */
-export async function setApplicationsDone(formData: FormData) {
+/** Mark the ticked applications as sent to the university ("Done"). */
+export async function markApplicationsDone(formData: FormData) {
+  await setApplicationsDone(formData, true);
+}
+
+/** Move the ticked Done applications back to work. */
+export async function unmarkApplicationsDone(formData: FormData) {
+  await setApplicationsDone(formData, false);
+}
+
+// Two actions rather than one with a button value: the submitter's name/value is not passed
+// to a server action called from a button's formAction.
+async function setApplicationsDone(formData: FormData, done: boolean) {
   if (!await isAdmin()) redirect("/admin");
   const ids = formData.getAll("id").map(String).filter((id) => /^[0-9a-f-]{36}$/i.test(id));
-  const done = formData.get("done") === "1";
   if (ids.length) await getDb().update(applications).set({ doneAt: done ? new Date().toISOString() : null }).where(inArray(applications.id, ids));
   const back = new URLSearchParams();
   for (const key of ["q", "university", "status"]) if (formData.get(key)) back.set(key, String(formData.get(key)));
